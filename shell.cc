@@ -41,7 +41,7 @@ private:
     Context _ctx;
 
 public:
-    void mainloop()
+    void mainLoop()
     {
         const std::string prompt = " > ";
         std::string line;
@@ -63,7 +63,7 @@ int main()
 {
     shell::signals::initSignalHandlers();
     auto s = shell::shell();
-    s.mainloop();
+    s.mainLoop();
 }
 
 namespace shell::parser {
@@ -190,14 +190,14 @@ void handleBuiltin(const std::string& cmd, char* const* argv, Context& ctx)
 }
 
 namespace shell::signals {
-void sigchld_handler(int)
+void sigchldHandler(int)
 {
     // SIGCHLD（"child terminated"）
     // Atcully no need we dont support background jobs (&)
     while (waitpid(-1, nullptr, WNOHANG) > 0) { }
 }
 
-void sigint_handler(int)
+void sigintHandler(int)
 {
     // Handle Ctrl + C
     std::cout << "\n[INTERRUPTED] Press Ctrl+D or type 'exit' to quit\n > " << std::flush;
@@ -206,13 +206,13 @@ void sigint_handler(int)
 void initSignalHandlers()
 {
     struct sigaction sa_chld {};
-    sa_chld.sa_handler = sigchld_handler;
+    sa_chld.sa_handler = sigchldHandler;
     sigemptyset(&sa_chld.sa_mask);
     sa_chld.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     sigaction(SIGCHLD, &sa_chld, nullptr);
 
     struct sigaction sa_int {};
-    sa_int.sa_handler = sigint_handler;
+    sa_int.sa_handler = sigintHandler;
     sigemptyset(&sa_int.sa_mask);
     sa_int.sa_flags = SA_RESTART;
     sigaction(SIGINT, &sa_int, nullptr);
