@@ -1,0 +1,1 @@
+mkdir -p build && cmake -Bbuild . && cmake --build build && ./build/shared_hello
