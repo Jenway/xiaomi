@@ -1,0 +1,9 @@
+*
+!*.cpp
+!*.cc
+!*.sh
+!.gitignore
+!CMakeLists.txt
+!bt.txt
+!Makefile
+!core.crash.*
