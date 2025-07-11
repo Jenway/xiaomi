@@ -1,39 +1,45 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++11 -Iinclude
+CXXFLAGS = -Wall -Wextra -std=c++14 -Iinclude
 
 SRC_DIR := src
 OBJ_DIR := build
 BUILD_DIR := $(OBJ_DIR)
 
-SRC_FILES := $(wildcard $(SRC_DIR)/*.cc)
-OBJ_FILES := $(SRC_FILES:$(SRC_DIR)/%.cc=$(OBJ_DIR)/%.o)
+animal_src       := animal.cc
+book_src         := book.cc
+animalProxy_src  := animalProxy.cc
 
-BIN_ANIMAL := animal
-BIN_BOOK := book
+TARGETS := animal book animalProxy
 
-all: $(BIN_ANIMAL) $(BIN_BOOK)
+animal_obj       := $(addprefix $(OBJ_DIR)/, $(animal_src:.cc=.o))
+book_obj         := $(addprefix $(OBJ_DIR)/, $(book_src:.cc=.o))
+animalProxy_obj  := $(addprefix $(OBJ_DIR)/, $(animalProxy_src:.cc=.o))
 
-$(BIN_ANIMAL): $(OBJ_DIR)/animal.o
+animal: $(animal_obj)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-$(BIN_BOOK): $(OBJ_DIR)/book.o
+book: $(book_obj)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cc $(OBJ_DIR)
+animalProxy: $(animalProxy_obj)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cc | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(OBJ_DIR):
-	@mkdir -p
+	@mkdir -p $@
+
+all: $(TARGETS)
 
 clean:
 	rm -rf $(OBJ_DIR)
 
 fclean: clean
-	rm -f $(BIN_ANIMAL) $(BIN_BOOK) $(BUILD_DIR)/compile_commands.json
+	rm -f $(TARGETS) $(BUILD_DIR)/compile_commands.json
 
 re: fclean all
 
-# for clangd
 lint: clean
 	@mkdir -p $(BUILD_DIR)
 	@BEAR_OUTPUT_DIR=$(BUILD_DIR) bear --output $(BUILD_DIR)/compile_commands.json -- make all

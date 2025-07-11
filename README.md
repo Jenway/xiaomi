@@ -16,3 +16,9 @@
 - 调用虚函数时，会先通过对象的虚表指针定位到对应虚表，然后从虚表中查找目标函数的地址
 - 两次间接寻址自然会效率差些，存储虚表也会有额外空间消耗
 - `Base*` 指向子类对象时，尽管子类的类型信息在编译时被擦除，但由于虚函数表保留了重写信息，在运行时依然能够正确调用到子类重写的函数
+
+### 但是为什么一定要用继承呢？
+
+请 run `./animalProxy`
+
+[Proxy: Next Generation Polymorphism in C++ —— github.com](https://github.com/microsoft/proxy)
