@@ -36,5 +36,8 @@ int main()
         std::cout << funcNames[i] << " result: " << funcPtrArray[i](x, y) << std::endl;
     }
 
+    delete[] funcPtrArray;
+    funcPtrArray = nullptr;
+
     return 0;
 }
