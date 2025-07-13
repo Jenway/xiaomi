@@ -1,0 +1,2 @@
+static/02_dict.png filter=lfs diff=lfs merge=lfs -text
+static/01_swap.png filter=lfs diff=lfs merge=lfs -text
