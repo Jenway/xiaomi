@@ -6,12 +6,6 @@ run `bash run.sh`
 
 ### 实现
 
-我们通过一个线程安全的队列包装类来作为生产者和消费者共同的中介，通过保证并发队列类 `push`、`pop`的线程安全性，保证生产者和消费者模型的稳定。
-
-`ConcurrentQueue` 的存储类型参数为 `std::future<Product>`,生产者和消费者装箱开箱即可。
-
-
-
 我们通过一个线程安全的并发队列 `ConcurrentQueue` 作为生产者与消费者之间的通信中介，确保在多线程环境下的稳定性和正确性。
 
 队列的存储类型为 `std::future<Product>`，生产者通过 `promise.set_value` 装箱，消费者则通过 `future.get` 开箱得到结果。
