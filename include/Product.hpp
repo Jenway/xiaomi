@@ -8,7 +8,7 @@
 namespace ProducerDemo {
 struct Product {
     std::string name;
-    int id;
+    int32_t id;
     double price;
     friend std::ostream& operator<<(std::ostream& os, const Product& product)
     {
@@ -18,15 +18,15 @@ struct Product {
 
 struct ProducerConfig {
     std::chrono::milliseconds delay;
-    int max_produce;
+    int32_t max_produce;
 };
 
 struct ConsumerConfig {
     std::chrono::milliseconds delay;
-    int max_consume;
+    int32_t max_consume;
 };
 
-void producer(int id, ConcurrentQueue<std::future<Product>>& queue, const ProducerConfig& config);
-void consumer(int id, ConcurrentQueue<std::future<Product>>& queue, const ConsumerConfig& config);
+void producer(int32_t id, ConcurrentQueue<std::future<Product>>& queue, const ProducerConfig& config);
+void consumer(int32_t id, ConcurrentQueue<std::future<Product>>& queue, const ConsumerConfig& config);
 
 } // namespace ProducerDemo

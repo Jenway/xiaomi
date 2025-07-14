@@ -33,14 +33,14 @@ int main()
     producers.reserve(num_producers);
     consumers.reserve(num_consumers);
 
-    for (int i = 0; i < num_producers; ++i) {
+    for (int32_t i = 0; i < num_producers; ++i) {
         producers.emplace_back(
             std::thread([i, &product_queue]() {
                 producer(i + 1, product_queue, producer_config);
             }));
     }
 
-    for (int i = 0; i < num_consumers; ++i) {
+    for (int32_t i = 0; i < num_consumers; ++i) {
         consumers.emplace_back(
             std::thread([i, &product_queue]() {
                 consumer(i + 1, product_queue, consumer_config);

@@ -6,11 +6,11 @@
 
 namespace ProducerDemo {
 
-void consumer(int id, ConcurrentQueue<std::future<Product>>& queue, const ConsumerConfig& config)
+void consumer(int32_t id, ConcurrentQueue<std::future<Product>>& queue, const ConsumerConfig& config)
 {
     std::stringstream ss;
 
-    for (int consumed = 0; consumed < config.max_consume; ++consumed) {
+    for (int32_t consumed = 0; consumed < config.max_consume; ++consumed) {
         auto future = queue.pop();
 
         ss.str("");

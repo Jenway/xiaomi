@@ -6,16 +6,16 @@
 
 namespace ProducerDemo {
 
-void producer(int id, ConcurrentQueue<std::future<Product>>& queue, const ProducerConfig& config)
+void producer(int32_t id, ConcurrentQueue<std::future<Product>>& queue, const ProducerConfig& config)
 {
     std::random_device rd;
     std::mt19937 gen(rd() + (id * 997)); // 避免每个线程种子一致
-    std::uniform_int_distribution<int> id_dist(10000, 99999);
+    std::uniform_int_distribution<int32_t> id_dist(10000, 99999);
     std::uniform_real_distribution<double> price_dist(10.0, 99.99);
-    std::uniform_int_distribution<int> suffix_dist(100, 999);
+    std::uniform_int_distribution<int32_t> suffix_dist(100, 999);
     std::stringstream ss;
 
-    for (int produced = 0; produced < config.max_produce; ++produced) {
+    for (int32_t produced = 0; produced < config.max_produce; ++produced) {
         std::promise<Product> product_promise;
         std::future<Product> product_future = product_promise.get_future();
 
@@ -26,9 +26,9 @@ void producer(int id, ConcurrentQueue<std::future<Product>>& queue, const Produc
 
         std::this_thread::sleep_for(config.delay);
 
-        int rand_id = id_dist(gen);
+        int32_t rand_id = id_dist(gen);
         double rand_price = price_dist(gen);
-        int suffix = suffix_dist(gen);
+        int32_t suffix = suffix_dist(gen);
 
         Product p = {
             .name = "Item-" + std::to_string(id) + "-" + std::to_string(suffix),
