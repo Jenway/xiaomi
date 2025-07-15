@@ -15,7 +15,7 @@ void Connection::handle(Poller& poller)
     }
 
     if (n == 0 || (n < 0 && errno != EAGAIN)) {
-        close_self(poller);
+        closeSelf(poller);
         return;
     }
 
@@ -25,20 +25,20 @@ void Connection::handle(Poller& poller)
         try {
             json j = json::parse(line);
             std::string filename = j.at("filename");
-            send_file_response(filename);
+            sendFileResponse(filename);
         } catch (...) {
-            send_error("invalid request");
+            sendError("invalid request");
         }
 
-        close_self(poller);
+        closeSelf(poller);
     }
 }
 
-void Connection::send_file_response(const std::string& filename)
+void Connection::sendFileResponse(const std::string& filename)
 {
     int file_fd = ::open(filename.c_str(), O_RDONLY);
     if (file_fd < 0) {
-        send_error("not file");
+        sendError("not file");
         return;
     }
 
@@ -59,14 +59,14 @@ void Connection::send_file_response(const std::string& filename)
     ::close(file_fd);
 }
 
-void Connection::send_error(const std::string& msg)
+void Connection::sendError(const std::string& msg)
 {
     json err = { { "error", msg } };
     std::string s = err.dump() + "\n";
     write(fd_, s.data(), s.size());
 }
 
-void Connection::close_self(Poller& poller) const
+void Connection::closeSelf(Poller& poller) const
 {
     poller.remove_fd(fd_);
     close(fd_);

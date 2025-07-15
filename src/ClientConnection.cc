@@ -33,7 +33,7 @@ ClientConnection::ClientConnection(const std::string& host, int port)
     freeaddrinfo(res);
 }
 
-bool ClientConnection::read_line(std::string& line)
+bool ClientConnection::readLine(std::string& line)
 {
     char ch;
     line.clear();
@@ -48,7 +48,7 @@ bool ClientConnection::read_line(std::string& line)
     return true;
 }
 
-bool ClientConnection::read_exact(std::vector<char>& buffer, size_t size)
+bool ClientConnection::readExact(std::vector<char>& buffer, size_t size)
 {
     buffer.resize(size);
     size_t received = 0;
@@ -61,14 +61,14 @@ bool ClientConnection::read_exact(std::vector<char>& buffer, size_t size)
     return true;
 }
 
-bool ClientConnection::request_file(const std::string& filename, const std::string& output_path)
+bool ClientConnection::requestFile(const std::string& filename, const std::string& output_path)
 {
     json req = { { "filename", filename } };
     std::string req_str = req.dump() + "\n";
     write(fd_, req_str.data(), req_str.size());
 
     std::string header;
-    if (!read_line(header))
+    if (!readLine(header))
         return false;
 
     try {
@@ -80,7 +80,7 @@ bool ClientConnection::request_file(const std::string& filename, const std::stri
 
         size_t fsize = resp["filesize"];
         std::vector<char> file_data;
-        if (!read_exact(file_data, fsize)) {
+        if (!readExact(file_data, fsize)) {
             std::cerr << "Failed to read file data\n";
             return false;
         }

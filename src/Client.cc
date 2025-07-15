@@ -15,7 +15,7 @@ int main(int argc, char* argv[])
     try {
         tcp::ClientConnection client(host, port);
         std::string output = "downloaded_" + filename;
-        if (!client.request_file(filename, output)) {
+        if (!client.requestFile(filename, output)) {
             std::cerr << "File download failed.\n";
             return 1;
         }

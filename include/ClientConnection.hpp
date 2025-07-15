@@ -11,13 +11,13 @@ namespace tcp {
 class ClientConnection {
 public:
     ClientConnection(const std::string& host, int port);
-    bool request_file(const std::string& filename, const std::string& output_path);
+    bool requestFile(const std::string& filename, const std::string& output_path);
 
 private:
     int fd_;
 
-    bool read_line(std::string& line);
-    bool read_exact(std::vector<char>& buffer, size_t size);
+    bool readLine(std::string& line);
+    bool readExact(std::vector<char>& buffer, size_t size);
 };
 
 } // namespace tcp

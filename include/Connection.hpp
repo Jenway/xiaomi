@@ -27,11 +27,11 @@ private:
     int fd_;
     std::string recv_buf_;
 
-    void send_file_response(const std::string& filename);
+    void sendFileResponse(const std::string& filename);
 
-    void send_error(const std::string& msg);
+    void sendError(const std::string& msg);
 
-    void close_self(Poller& poller) const;
+    void closeSelf(Poller& poller) const;
 };
 
 }
