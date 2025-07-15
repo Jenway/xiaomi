@@ -19,19 +19,32 @@
 ### 组件
 
 * **Socket**
-    - socket 的 RAII wrapper，支持非阻塞监听与
+    - socket 的 RAII wrapper，支持非阻塞监听与 accept
     - 提供 accept 接口非阻塞返回 Client 的文件描述符
 * **Poller**
     - epoll 的简单封装，提供添加/删除 fd 接口与事件监听接口
-    - 事件接口返回一个触发时间的迭代器的范围以便遍历
+    - 事件接口返回一个触发事件的迭代器的范围以便遍历
 * **Connection**
     - 负责处理单个客户端的协议逻辑，进行文件传输和错误处理
-    -  这里调用了 `sendfile` 零拷贝接口，提高了效率
+    - 首先发送一个 JSON 格式协议头，可能是成功响应的头部或者错误相应
+    - 如果是合法文件就调用 `sendfile` 零拷贝接口发送给 Client
 * **ClientConnection**
     - 客户端连接封装，实现文件请求和数据接收。
-    - 比较简单，所以没有进行分层，ClientConnection 类会创建一个 socket fd 并尝试连接到 server，然后发出请求再接收
 
-## 使用说明
+### 运行流程
+
+Server 启动后会通过 Socket 类来非阻塞监听给定端口，通过轮询 Poller 事件接口来处理
+
+1. 有 client 连接，触发 EPOLLIN 事件
+    - 这时候通过 Socket accept 得到 clinet 的 fd
+    - 将 client 加入到 epoll 等待
+2. client fd 事件
+    - 接收请求，解析，然后发送协议头部已经（如果请求合法）文件
+    - 关闭 client socket
+
+对于 Client：比较简单，所以没有进行分层，创建一个 socket fd 并尝试连接到 server，然后发出请求再接收，如果失败给出提示，成功则写入本地文件即可
+
+### 使用说明
 
 1. 编译项目：
 
@@ -62,6 +75,12 @@ sudo tcpdump -i loopback0 port 8888 -w capture.pcap
 抓包文件在仓库根目录 `./capture.pcap`
 
 ### 结果
+
+![alt text](assets/fileSender.png)
+
+在本地测试，可以正确的进行文件传输
+
+下面是抓包结果，将 `tcpdump` 抓包的 `capture.pcap` 导入 wireshark 得到以下，由于上面过滤了端口，而且回环网卡也没有别的，所以这里也不需要更多 filter 了
 
 ![result](assets/wireshark.png)
 
