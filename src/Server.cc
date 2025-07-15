@@ -3,9 +3,7 @@
 #include "Socket.hpp"
 #include <iostream>
 
-namespace {
 static void handle_new_connection(tcp::Socket& socket, Poller& poller, std::unordered_map<int, tcp::Connection>& conns);
-}
 
 int main(int argc, char* argv[])
 {
@@ -40,7 +38,7 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-void handle_new_connection(tcp::Socket& socket, Poller& poller,
+static void handle_new_connection(tcp::Socket& socket, Poller& poller,
     std::unordered_map<int, tcp::Connection>& conns)
 {
     while (true) {

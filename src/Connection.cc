@@ -1,5 +1,4 @@
 
-#pragma once
 #include "Connection.hpp"
 
 namespace tcp {

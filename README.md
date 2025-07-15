@@ -7,7 +7,6 @@
 3. 无指定文件则返回“not file”字符串
 4. 运行过程中，使用tcpdump抓包，过滤无关端口，截图上传
 
-
 ### 协议设计
 
 - 使用 JSON 格式请求与响应。
@@ -54,6 +53,14 @@
 
 4. 文件传输完成后，客户端会在本地生成对应文件。
 
+使用 `tcpdump` 命令监听：
+
+```bash
+sudo tcpdump -i loopback0 port 8888 -w capture.pcap
+```
+
+抓包文件在仓库根目录 `./capture.pcap`
+
 ### 结果
 
 ![result](assets/wireshark.png)
@@ -77,3 +84,33 @@ Server 先发送 ACK 确认请求
 - server 回复 ACK 确认
 
 四次挥手结束，连接正常关闭
+
+### 文件结构
+
+
+```bash
+❯ exa -T
+.
+├── assets
+│  └── wireshark.png
+├── capture.pcap
+├── catch.sh
+├── CMakeLists.txt
+├── include
+│  ├── ClientConnection.hpp
+│  ├── Connection.hpp
+│  ├── Poller.hpp
+│  └── Socket.hpp
+├── lib
+│  └── nlohmann
+│     ├── json.hpp
+│     └── LICENSE.MIT
+├── README.md
+└── src
+   ├── Client.cc
+   ├── ClientConnection.cc
+   ├── Connection.cc
+   ├── Poller.cc
+   ├── Server.cc
+   └── Socket.cc
+```
