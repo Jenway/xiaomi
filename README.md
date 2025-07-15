@@ -33,16 +33,25 @@
 
 ### 运行流程
 
-Server 启动后会通过 Socket 类来非阻塞监听给定端口，通过轮询 Poller 事件接口来处理
+Server 启动后会通过 Socket 类来非阻塞监听给定端口，通过轮询 Poller 事件接口来检测处理新连接
 
 1. 有 client 连接，触发 EPOLLIN 事件
     - 这时候通过 Socket accept 得到 clinet 的 fd
-    - 将 client 加入到 epoll 等待
+    - 为该连接创建 Connection 实例
+    - 将 client fd 加入到 epoll 等待
 2. client fd 事件
-    - 接收请求，解析，然后发送协议头部已经（如果请求合法）文件
+    - 托管给 Connection 类进行处理，由于协议简单，这里也不需要考虑状态机更新之类的
+    - Connection 类接收请求，验证请求的文件合法、发送 JSON 响应 + 文件数据或错误信息；
     - 关闭 client socket
 
-对于 Client：比较简单，所以没有进行分层，创建一个 socket fd 并尝试连接到 server，然后发出请求再接收，如果失败给出提示，成功则写入本地文件即可
+___
+
+对于 Client：比较简单，所以没有进行分层
+
+- 创建一个 socket fd 并尝试连接到 server
+- 如果成功连接则发送包含文件名的 JSON 请求；
+- 接收 JSON 响应：若成功，继续接收文件内容并写入本地文件；
+- 显示传输状态与异常信息。
 
 ### 使用说明
 
@@ -90,13 +99,13 @@ sudo tcpdump -i loopback0 port 8888 -w capture.pcap
 - SYN ACK
 - ACK + PSH
 
-> 注意到这个地方在第三次握手的同时消息同时发出，优化了效率
+> 注意到这个地方在第三次握手的同时（客户端的）消息同时发出，优化了效率
 
 Server 先发送 ACK 确认请求
 
 然后发出 PUSH ACK，这里是协议头 json
 
-由于文件是走的 sendfile，所以又有一个 FIN PUSH ACK，可以看出文件比较小，所以直接发完顺便发了 FIN，也就是四次挥手的第一次
+由于文件是走的 sendfile，所以 Server 会再发一个 FIN PUSH ACK，可以看出文件比较小，所以直接发完顺便发了 FIN，也就是四次挥手的第一次
 
 - client 先发 ACK 确认接收到了 这个 FIN
 - 然后又发 FIN ACK，表明已经不需要继续 tcp 连接的
