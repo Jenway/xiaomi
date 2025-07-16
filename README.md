@@ -4,13 +4,13 @@ Day 07
 
 ### Part 1
 
-10分：Android HelloWorld工程上传git
+**10分：Android HelloWorld 工程上传 git**
 
 - 路径 => `./helloWorld/`
 
 ### Part 2
 
-10分：签名包上传git，查看包内资源分布，截图上传
+**10分：签名包上传git，查看包内资源分布，截图上传**
 
 本地创建一个签名文件 => `./signature.jks`
 
@@ -32,7 +32,7 @@ Day 07
 
 ### part1
 
-10分：用adb命令安装课上编译好的apk到手机中上传截图即可
+**10分：用adb命令安装课上编译好的apk到手机中上传截图即可**
 
 首先是打开开发者模式，省略。然后使用 USB 设备 本地连接
 
@@ -57,9 +57,68 @@ emulator-5554   device
 
 课后作业：编写一个 SO库，支持两个方法
 
-20分：stringToFromJNI(返回一个字符串显示到界面
-20分：add(int a,intb)做计算返回一个int值显示到界面
-10分：应用app工程上传git库
-10分：C++工程上传到git库
-10分：提供截图
+- 20分：`stringToFromJNI()` 返回一个字符串显示到界面
+- 20分：`add(int a,intb)` 做计算返回一个int值显示到界面
+- 10分：应用 app 工程上传 git 库
+- 10分：C++ 工程上传到 git 库
+- 10分：提供截图
+
+___
+
+首先创建一个 `Native C++` 项目，实现这两个函数即可
+
+- 路径 => `./myLib/`
+
+```cpp
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_mylib_stringToFromJNI(JNIEnv *env, jobject /* this */) {
+    std::string hello = "Hello from JNI calling C++";
+    return env->NewStringUTF(hello.c_str());
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_mylib_add(JNIEnv *env, jobject /* this */, jint a, jint b) {
+    return a + b;
+}
+```
+
+在 `./mylib` 中 run `./gradlew :mylib:externalNativeBuildDebug`
+
+编译得到产物
+
+```bash
+.../myLib/mylib/build/intermediates/cmake/debug/obj
+❯ eza -T
+.
+├── arm64-v8a
+│   └── libmylib.so
+├── armeabi-v7a
+│   └── libmylib.so
+├── x86
+│   └── libmylib.so
+└── x86_64
+    └── libmylib.so
+```
+
+新建一个 Android 应用项目，创建一个 `app/src/main/jniLibs` 目录，将上述动态库复制到里面
+
+- 路径 => `./myLib/`
+
+
+增加一个 java 类来提供接口声明
+
+``` java
+package com.example;
+public class mylib {
+    static {
+        System.loadLibrary("mylib");
+    }
+    public static native String stringToFromJNI();
+    public static native int add(int a, int b);
+}
+```
+
+然后调用函数实现一个界面即可，编译运行结果如下：
+
+![JNI Result](assets/jniResult.png)
 
