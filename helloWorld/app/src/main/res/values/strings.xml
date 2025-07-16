@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">helloWorld</string>
+    <string name="day_07_lab">
+    作业1：\n
+    • 10分：Android HelloWorld工程上传git\n
+    • 10分：签名包上传git，查看包内资源分布，截图上传
+</string>
+</resources>
