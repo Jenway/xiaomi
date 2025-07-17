@@ -186,6 +186,8 @@ mkdir -p "$BUILD_DIR" && cmake -B "$BUILD_DIR" -G Ninja \
 cmake --build "$BUILD_DIR" -- -j$(nproc)
 ```
 
+稍微修改一下，让它多生成几个 ABI 的以支持同时在模拟器和手机上测试，脚本的位置是：`build.sh`
+
 run `bash build.sh`
 
 ![JNI build](assets/jniBuild.png)
@@ -194,8 +196,9 @@ run `bash build.sh`
 
 ![JNI Result](assets/jniResult.png)
 
-- arm64-v8a：可以简单理解为 64 位 ARM 设备
-- 当然，之后作业 5 我直接用的本地模拟器，所以实际用的大概是 x86_64
+- arm64-v8a 大概是 64 位 ARM 设备
+- armeabi-v7a -> 32 位 ARM 设备
+- 当然，之后作业 5 我直接用的本地模拟器，所以实际用的大概是 x86_64 的 ABI
 
 ### 作业 5
 
@@ -211,7 +214,7 @@ run `bash build.sh`
     - `MathWrapper.kt`：调用 `MathUtils` 的封装
         - 提供一个输入为 string，类型参数、操作参数的函数，dispatch 到对应操作上去，并提供了错误处理
 - `src/main/java/common/example/myapplication`
-    - `MainActivity.kt`：UI 逻辑的代码。
+    - `MainActivity.kt`：UI ，使用一些简单组件
 
 那么直接运行即可
 
@@ -221,11 +224,8 @@ run `bash build.sh`
 
 ![Android gif](assets/calculator.gif)
 
-
-<video controls src="assets/calculator.mp4" title="Calculator"></video>
-
 ___
 
-add cJson integrated to former net io
+> add cJson integrated to former net io file server client lab
 
-+ - * /
+放在了[之前的仓库的 cJSON 分支](https://partner-gitlab.mioffice.cn/nj-trainingcollege/miclassroom250710/cppgroup5/liuzhenwei/coursework-7.15/-/tree/cJSON#day-08-extra)
