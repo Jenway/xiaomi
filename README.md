@@ -142,3 +142,28 @@ Server 先发送 ACK 确认请求
    ├── Server.cc
    └── Socket.cc
 ```
+
+## Day 08 Extra
+
+在 Day 06 的 lab 里使用 `cJSON`
+
+首先把代码 pull 下来
+
+```BASH
+git submodule add git@github.com:DaveGamble/cJSON.git
+```
+
+修改 CMakeLists,增加 
+
+```CMake
+target_link_libraries(fileClient PRIVATE cjson)
+```
+
+由于之前 target 就 include 了 整个 lib 目录,所以不需要额外再 include 头文件了
+
+这里简单起见只修改了 `ClientConnection.hpp` ,也就是只让 Client 用了 cJSON, Server 继续用 `nlohmann/json`
+
+截个图
+
+![Day 08 extra](assets/extra.png)
+

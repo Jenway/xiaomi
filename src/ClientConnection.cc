@@ -1,10 +1,10 @@
 #include "ClientConnection.hpp"
+#include "cJSON/cJSON.h"
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <netdb.h>
 #include <stdexcept>
-
-using json = nlohmann::json;
 
 namespace tcp {
 
@@ -63,22 +63,44 @@ bool ClientConnection::readExact(std::vector<char>& buffer, size_t size)
 
 bool ClientConnection::requestFile(const std::string& filename, const std::string& output_path)
 {
-    json req = { { "filename", filename } };
-    std::string req_str = req.dump() + "\n";
-    write(fd_, req_str.data(), req_str.size());
+    cJSON* req = cJSON_CreateObject();
+    cJSON_AddStringToObject(req, "filename", filename.c_str());
+    char* req_str = cJSON_PrintUnformatted(req);
+    std::string message = std::string(req_str) + "\n"; // 添加换行
+    cJSON_free(req_str);
+    cJSON_Delete(req);
+
+    write(fd_, message.data(), message.size());
 
     std::string header;
-    if (!readLine(header))
+    if (!readLine(header)) {
         return false;
+    }
 
     try {
-        json resp = json::parse(header);
-        if (resp.contains("error")) {
-            std::cerr << "Server error: " << resp["error"] << "\n";
+        cJSON* resp = cJSON_Parse(header.c_str());
+        if (resp == nullptr) {
+            std::cerr << "Invalid JSON response\n";
+            return false;
+        }
+        cJSON* err = cJSON_GetObjectItemCaseSensitive(resp, "error");
+        if (cJSON_IsString(err) != 0) {
+            std::cerr << "Server error: " << err->valuestring << "\n";
+            cJSON_Delete(resp);
             return false;
         }
 
-        size_t fsize = resp["filesize"];
+        cJSON* fsize_json = cJSON_GetObjectItemCaseSensitive(resp, "filesize");
+        if (cJSON_IsNumber(fsize_json) == 0) {
+            std::cerr << "Missing or invalid 'filesize'\n";
+            cJSON_Delete(resp);
+            return false;
+        }
+
+        size_t fsize = static_cast<size_t>(fsize_json->valuedouble);
+        cJSON_Delete(resp);
+
+        // --- 接收文件内容 ---
         std::vector<char> file_data;
         if (!readExact(file_data, fsize)) {
             std::cerr << "Failed to read file data\n";
