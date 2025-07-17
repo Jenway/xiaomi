@@ -4,3 +4,4 @@ assets/cmake.png filter=lfs diff=lfs merge=lfs -text
 assets/jniBuild.png filter=lfs diff=lfs merge=lfs -text
 assets/jniResult.png filter=lfs diff=lfs merge=lfs -text
 assets/make.png filter=lfs diff=lfs merge=lfs -text
+assets/calculator.gif filter=lfs diff=lfs merge=lfs -text

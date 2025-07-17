@@ -217,7 +217,10 @@ run `bash build.sh`
 
 ![Android result](assets/android.png)
 
-下面附有一个视频
+下面附有一个 GIF
+
+![Android gif](assets/calculator.gif)
+
 
 <video controls src="assets/calculator.mp4" title="Calculator"></video>
 
