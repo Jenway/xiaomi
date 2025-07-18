@@ -1,0 +1,6 @@
+build
+build_android
+output.mp4
+.cache
+.vscode
+compile_commands.json

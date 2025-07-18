@@ -1,1 +1,2 @@
 assets/ffmpeg.drawio.png filter=lfs diff=lfs merge=lfs -text
+assets/buildJNI.png filter=lfs diff=lfs merge=lfs -text
