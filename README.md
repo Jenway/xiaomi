@@ -158,25 +158,6 @@ public:
 * `dumpAllFramesToYUV(String)` → 写入 `.yuv` 文件
 * `close()` → 调用 `Mp4Parser::close()` 并释放内存
 
-JNI 中还实现了辅助函数：
-
-* `setMp4Parser(JNIEnv*, jobject, Mp4Parser*)`：保存 native 指针到 Java 对象字段
-* `getMp4Parser(JNIEnv*, jobject)`：获取 native 指针
-
-#### nativeHandle 的保存方式说明
-
-在 Java 类中使用 `private long nativeHandle;` 字段，在 C++ 中配合 `setMp4Parser()` / `getMp4Parser()` 方法进行存取（通常通过反射字段 ID 设置），从而将 C++ 对象生命周期与 Java 对象绑定。
-
-例如：
-
-```cpp
-// jni_helpers.hpp
-inline void setMp4Parser(JNIEnv* env, jobject obj, Mp4Parser* parser);
-inline Mp4Parser* getMp4Parser(JNIEnv* env, jobject obj);
-```
-
----
-
 #### 封装结构总览
 
 ```java
@@ -308,6 +289,13 @@ public class Mp4ParserJNI {
 
 ### Android app 设计
 
+文件夹在 `ffmpegAndroid`，目录结构主要就是
+
+- 视频资源：`ffmpegAndroid/app/src/main/assets/output.mp4`
+- JNI 桥接类：`ffmpegAndroid/app/src/main/java/com/example/ffmpeg/Mp4ParserJNI.java`
+- UI: `ffmpegAndroid/app/src/main/java/com/example/myapplication/MainActivity.kt`
+- SO: `ffmpegAndroid/app/src/main/jniLibs`
+
 ### 结果
 
 - 作业3: 15分
@@ -339,3 +327,37 @@ public class Mp4ParserJNI {
 那么这里是 GIF
 
 ![05 gif](assets/record.gif)
+
+## MISC
+
+这玩意实在给我整破防了所以我不得不碎碎念
+
+我先后遇到了：
+
+一直到最后一部分 Android 应用调用之前都十分顺利，然后它报错说找不到 ffmpeg 的一个网络io功能的符号 (undefined reference)
+
+我？？我哪里用网络 io了，没办法，重新跑到 Part1 去重新编译 ffmpeg
+
+然后说报错说 undefined reference to `ff_aom_uninit_film_grain_params' 
+
+我真的出离崩溃了，不是我哪里用 AV1 编码了？
+
+索性直接找到他把它在源码里注释掉了
+
+```Dockerfile
+RUN sed -i 's/^\(.*ff_aom_uninit_film_grain_params(&s->aom_film_grain);\)/ \/\/ \1/' /src/ffmpeg/libavcodec/h2645_sei.c
+```
+
+终于，能用了，然后就遇到了更诡异的情况：
+
+就如前面所说，我把 ffmpegJNI 分成了 core 和 JNI wrapper 两部分，方便直接 test
+
+test 是用 apt install libavutil blabla 什么的 ffmpeg 的本机架构的lib
+
+test 自然十分顺利，但是一用 JNI wrap 之后在 Android 里调用就各种问题，其中种种无法细说
+
+> 这其中尤其绝望的就是 LLM 一遍遍和你说哎呀一定是你的 core 写错了快回去改 core 吧
+>
+> ? 它不知道我为什么要特意分开写 test 吗
+
+相比之下 Android 的存储权限几乎是小巫见大巫，因为直接存到有公共权限的 Downloads 里就行了。
