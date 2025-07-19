@@ -130,7 +130,9 @@ struct ImageData {
 };
 ```
 
-pixel_data 可直接传递给图形 API 进行显示。例如：
+pixel_data 可直接传递给图形 API。
+
+例如：
 
 使用 SDL：
 
