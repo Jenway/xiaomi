@@ -335,3 +335,7 @@ public class Mp4ParserJNI {
 ![05](assets/image-4.png)
 
 `output.yuv` 就直接放在根目录好了
+
+那么这里是 GIF
+
+![05 gif](assets/record.gif)
