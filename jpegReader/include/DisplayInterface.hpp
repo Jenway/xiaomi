@@ -10,4 +10,3 @@ class ImageDisplay
     virtual bool display(const ImageData &image) = 0;
 };
 
-std::unique_ptr<ImageDisplay> createAsciiArtDisplay();

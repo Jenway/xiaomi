@@ -27,24 +27,8 @@ ExternalProject_Add(
 ExternalProject_Get_Property(external_libjpeg_turbo INSTALL_DIR)
 set(JPEG_TURBO_INSTALL ${INSTALL_DIR})
 
-
-# External: notcurses
-ExternalProject_Add(
-        external_notcurses
-        SOURCE_DIR ${CMAKE_SOURCE_DIR}/lib/notcurses
-        INSTALL_DIR ${EXTERNAL_INSTALL_DIR}/notcurses
-        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DUSE_STATIC=OFF -DUSE_PANDOC=OFF -DUSE_DOXYGEN=OFF
-        LOG_CONFIGURE TRUE LOG_BUILD TRUE LOG_INSTALL TRUE
-)
-
-ExternalProject_Get_Property(external_notcurses INSTALL_DIR)
-set(NOTCURSES_INSTALL ${INSTALL_DIR})
-
 # Expose to subdirs
 set(JPEG_TURBO_INCLUDE_DIR ${JPEG_TURBO_INSTALL}/include)
 set(JPEG_TURBO_LIB_DIR ${JPEG_TURBO_INSTALL}/lib)
-
-set(NOTCURSES_INCLUDE_DIR ${NOTCURSES_INSTALL}/include)
-set(NOTCURSES_LIB_DIR ${NOTCURSES_INSTALL}/lib)
 
 add_subdirectory(src)

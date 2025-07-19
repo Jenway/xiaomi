@@ -1,4 +1,4 @@
-#include "TrafficLight.hpp" // Changed to .hpp
+#include "TrafficLight.hpp"
 #include <iostream>
 #include <string>
 

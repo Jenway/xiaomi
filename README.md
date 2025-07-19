@@ -15,6 +15,66 @@ a. 正确实现状态转移。
 b. 使用多线程或系统中断实现开关机功能（额外加分）。  
 c. 提交代码及运行截图。  
 
+#### 思路
+
+那么，我们定义一个 `TrafficLight` 类，这个类可以起一个线程来跑信号灯逻辑，用伪代码来说就是：
+
+```cpp
+while (true) {
+
+   switch (state) {
+   case Red:
+      print(RED)
+      sleep(10)
+   case Green:
+      print(Green)
+      sleep(8)
+   case Yellow:
+      print(Green)
+      sleep(2)
+   }
+}
+```
+
+灯的状态可以用一个 C++ enum class `TrafficLightState` 来表示
+
+为了实现通过输入和控制，我们将逻辑分为 信号灯逻辑线程和 用户输入线程（主线程）
+
+主线程的逻辑的伪代码是这样的
+
+```CPP
+void userInputHandler(TrafficLight& light)
+{
+    while (std::cin >> command) {
+        switch (command) {
+         case RESUME:
+            light.resume();
+         case PAUSE:
+            light.pause()；
+         case STOP:
+            light.stop();
+        }
+    }
+}
+```
+
+可以理解为，交通信号灯应该是一个能暂停又再启动的函数，换句话说就是这个交通信号灯应该是个协程，当然这里没有必要用 C++20 coroutine，实际上我也不会用，只要让 TrafficLight 能提供类似 resume 和 pause 功能的接口即可
+
+那么就需要保存几个状态
+
+- 灯自身的状态（颜色） `std::atomic<TrafficLightState> current_state_`
+- 是否暂停？`std::atomic<bool> is_cycling_paused_`
+- 是否退出？`std::atomic<bool> run_logic_`
+
+由于涉及到主线程和信号灯线程的读写，那么有必要引入锁保护共享状态，避免多个线程同时访问和修改共享变量（ is_cycling_paused_、run_logic_、current_state_）时出现数据竞争。
+
+为了实现这个线程暂停，我们引入条件变量让逻辑循环在暂停时阻塞等待。
+
+总之：
+
+- pause 函数会在加锁的情况下将暂停状态设为 true，触发逻辑循环的阻塞等待
+- resume函数同样会修改状态，然后 notify 条件变量使得循环继续执行
+
 ![01](assets/1.png)
 
 ___
@@ -51,7 +111,7 @@ a. 把以下图片绘制到界面上
 a. 图片显示正常。  
 b. 提交代码及运行截图。
 
-### 思路
+#### 思路
 
 可以分为两部分
 
@@ -89,7 +149,7 @@ glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.width, image.height, 0, GL_RGB, GL_
 
 ![02](assets/image.png)
 
-### 运行
+#### 运行
 
 编译的话要装一堆依赖，可惜我忘记记下来了
 
