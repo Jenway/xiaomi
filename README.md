@@ -334,3 +334,4 @@ public class Mp4ParserJNI {
 
 ![05](assets/image-4.png)
 
+`output.yuv` 就直接放在根目录好了
