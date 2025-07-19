@@ -17,44 +17,41 @@ c. 提交代码及运行截图。
 
 #### 思路
 
-那么，我们定义一个 `TrafficLight` 类，这个类可以起一个线程来跑信号灯逻辑，用伪代码来说就是：
+那么，我们定义一个 `TrafficLight` 类，它内部通过一个独立线程运行交通灯状态机，负责循环输出红绿黄三种状态。主线程则负责处理用户输入（如开启、暂停、关闭）。
+
+信号灯逻辑线程运行的伪代码类似：
 
 ```cpp
-while (true) {
-
-   switch (state) {
-   case Red:
-      print(RED)
-      sleep(10)
-   case Green:
-      print(Green)
-      sleep(8)
-   case Yellow:
-      print(Green)
-      sleep(2)
-   }
+while (running) {
+    switch (state) {
+    case Red:
+        print("Red");
+        sleep(10);
+        state = Green;
+        break;
+    case Green:
+        print("Green");
+        sleep(8);
+        state = Yellow;
+        break;
+    case Yellow:
+        print("Yellow");
+        sleep(2);
+        state = Red;
+        break;
+    }
 }
 ```
 
-灯的状态可以用一个 C++ enum class `TrafficLightState` 来表示
-
-为了实现通过输入和控制，我们将逻辑分为 信号灯逻辑线程和 用户输入线程（主线程）
+为了实现通过输入控制灯的关停，我们将逻辑分为信号灯逻辑线程和用户输入线程（主线程）
 
 主线程的逻辑的伪代码是这样的
 
 ```CPP
-void userInputHandler(TrafficLight& light)
-{
-    while (std::cin >> command) {
-        switch (command) {
-         case RESUME:
-            light.resume();
-         case PAUSE:
-            light.pause()；
-         case STOP:
-            light.stop();
-        }
-    }
+while (std::cin >> command) {
+    if (command == "resume") light.resume();
+    else if (command == "pause") light.pause();
+    else if (command == "stop") light.stop();
 }
 ```
 
@@ -66,14 +63,14 @@ void userInputHandler(TrafficLight& light)
 - 是否暂停？`std::atomic<bool> is_cycling_paused_`
 - 是否退出？`std::atomic<bool> run_logic_`
 
-由于涉及到主线程和信号灯线程的读写，那么有必要引入锁保护共享状态，避免多个线程同时访问和修改共享变量（ is_cycling_paused_、run_logic_、current_state_）时出现数据竞争。
+为了实现逻辑线程的暂停，引入条件变量，让逻辑循环在暂停时阻塞等待，直到被 resume() 唤醒。
 
-为了实现这个线程暂停，我们引入条件变量让逻辑循环在暂停时阻塞等待。
+虽然这些变量为原子类型，但为了配合保证状态切换与线程通信同步一致，还是有必要引入锁保护共享状态，况且条件变量也依赖于锁
 
 总之：
 
 - pause 函数会在加锁的情况下将暂停状态设为 true，触发逻辑循环的阻塞等待
-- resume函数同样会修改状态，然后 notify 条件变量使得循环继续执行
+- resume 函数同样会修改状态，然后 notify 条件变量使得循环继续执行
 
 ![01](assets/1.png)
 
@@ -91,10 +88,6 @@ ___
 │  └── TrafficLight.hpp
 ├── Makefile
 ├── obj
-│  ├── main.d
-│  ├── main.o
-│  ├── TrafficLight.d
-│  └── TrafficLight.o
 └── src
    ├── main.cc
    └── TrafficLight.cc
@@ -115,25 +108,31 @@ b. 提交代码及运行截图。
 
 可以分为两部分
 
-- Decoder：把图片解码为 RGBA buffer
+- Decoder：把 JPEG 图片解码为 RGB buffer
 - Display：显示这个 buffer
 
-由于这个图片实际上是个 jpeg，所以 Decoder 使用的 [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo)
+由于这个图片实际上为 JPEG 格式，所以 Decoder 使用的 [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo)
 
-封装 libjpeg-turbo 的 api 实现一个符合 JpegDecoder 接口的类，也就是实现一个`ImageData decode(const std::string &filepath)` 方法
+封装该库接口，设计一个 JpegDecoder 类，并实现如下接口，
+
+``` CPP
+ImageData decode(const std::string &filepath)
+```
 
 返回一个结构体，包含着一个 RGB buffer
 
 ```cpp
 struct ImageData {
-    std::vector<unsigned char> pixel_data;
+    std::vector<unsigned char> pixel_data; // RGB buffer
     unsigned int width = 0;
     unsigned int height = 0;
-    int channels = 0; // 3 bydefault
+    int channels = 0; // 默认 3（RGB）
 };
 ```
 
-pixel_data 这样的结构可以直接交给某些图形API，譬如用 SDL
+pixel_data 可直接传递给图形 API 进行显示。例如：
+
+使用 SDL：
 
 ``` cpp
 SDL_UpdateTexture(texture, nullptr, image.pixel_data.data(), image.width * image.channels);
@@ -173,7 +172,6 @@ run `bash build.sh`
 │  └── SDLDisplay.hpp
 ├── lib
 │  ├── libjpeg-turbo
-│  └── notcurses
 ├── src
 │  ├── CMakeLists.txt
 │  ├── JpegDecoder.cc
