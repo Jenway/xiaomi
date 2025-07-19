@@ -16,23 +16,29 @@ COMMON_CONFIG=(
     --disable-everything
     --disable-symver
 
+    # Zlib is required by mov/mp4 demuxer for compressed headers
+    --enable-zlib  # <-- 添加这一行
+
     --disable-decoders
     --enable-decoder=h264
 
     --disable-encoders
-    --enable-encoder=libx264
+    # --enable-encoder=libx264 # 如果您不需要编码功能，可以注释掉以减小体积
 
     --disable-parsers
     --enable-parser=h264
 
     --disable-libaom
-
     --disable-filters
 
     --disable-demuxers
     --enable-demuxer=mov
+
     --disable-muxers
     --enable-muxer=mp4
+
+    # The h264_mp4toannexb BSF is essential for decoding H264 from MP4
+    --enable-bsf=h264_mp4toannexb
 
     --disable-protocols
     --enable-protocol=file
@@ -44,7 +50,6 @@ COMMON_CONFIG=(
     --disable-postproc
     --disable-gpl
     --disable-version3
-    --disable-bsf=h264_mp4toannexb
 )
 
 

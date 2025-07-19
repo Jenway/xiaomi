@@ -7,11 +7,11 @@ Day 09
 - 作业2: 20分
     - ffmpeg整体流程图，流程图中标注用到的函数
 - 作业3: 15分
-    - 解析下载的mp4文件，打印出AVPacket中的pts和dts的值
+    - 解析下载的 mp4 文件，打印出 AVPacket 中的 pts 和 dts 的值
 - 作业4: 15分
-    - 解码AVPacket后的AVFrame，打印出其中宽高
+    - 解码 AVPacket 后的AVFrame，打印出其中宽高
 - 作业5 40分
-    - android将mp4文件转换成YUV格式，并给出转换后产物上传，并上传用ffplay播放yuv的命令
+    - android 将 mp4 文件转换成YUV格式，并给出转换后产物上传，并上传用ffplay播放yuv的命令
 
 
 ## Part1
@@ -271,7 +271,7 @@ cpp wrapper of ffmpeg lib（Mp4Parser） ->
 ffmpeg/lib/*.so
 ```
 
-#### Java 类设计
+### Java 类设计
 
 * **包名**：`com.example.ffmpeg`
 * **类名**：`Mp4ParserJNI`
@@ -305,3 +305,32 @@ public class Mp4ParserJNI {
     public native void close();
 }
 ```
+
+### Android app 设计
+
+### 结果
+
+- 作业3: 15分
+    - 解析下载的 mp4 文件，打印出 AVPacket 中的 pts 和 dts 的值
+
+![03](assets/image.png)
+
+- 作业4: 15分
+    - 解码 AVPacket 后的AVFrame，打印出其中宽高
+    - 一般来说他们的宽高都一样的，所以这里是一个一个点的
+
+![04](assets/image-1.png)
+
+- 作业5 40分
+    - android 将 mp4 文件转换成YUV格式，并给出转换后产物上传，并上传用ffplay播放yuv的命令
+
+ ![05](assets/image-3.png)
+
+然后用 adb pull 出来
+
+```bash
+❯ ffplay -f rawvideo -pixel_format yuv420p -video_size 1920x1080 output.yuv
+```
+
+![05](assets/image-4.png)
+
