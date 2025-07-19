@@ -1,0 +1,3 @@
+[submodule "jpegReader/lib/libjpeg-turbo"]
+	path = jpegReader/lib/libjpeg-turbo
+	url = https://github.com/libjpeg-turbo/libjpeg-turbo.git
