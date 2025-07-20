@@ -366,8 +366,11 @@ LLM 认为很难实现，原因有：
 > 3. Android Java 没有提供类似 io_uring、epoll 的文件异步接口。
 
 
-让 LLM 给了个用 Kotlin Coroutine 的示例，不过考虑到解码好像确实是 CPU 密集，可能上协程不一定能比多线程好，当然考虑到数据竞争也不一定？
+让 LLM 给了个用 Kotlin Coroutine 的示例，不过考虑到解码好像确实是 CPU 密集，可能上协程不一定能比多线程好，当然考虑到数据竞争也不一定
 
+如果要继续改的话，可能就会到：协程异步io读取分发到线程池里进行decode，线程decode 完提交给 JNI update texture 然后wait all done 再 draw...
+
+然而我并不会写hh
 
 ```kotlin
 package com.example.render
