@@ -274,6 +274,8 @@ public void surfaceCreated(@NonNull SurfaceHolder holder) {
           Bitmap bg = BitmapFactory.decodeResource(getResources(), R.drawable.lianhua);
           Surface surface = holder.getSurface();
           runOnUiThread(() -> render(bg, fg, surface));
+          mTaiyiBitmap = fg;
+          mLianhuaBitmap = bg;
       });
   }
 

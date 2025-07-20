@@ -41,6 +41,9 @@ public class RenderActivity extends Activity implements SurfaceHolder.Callback {
             Surface surface = holder.getSurface();
 
             render(bg, fg, surface);
+
+            mTaiyiBitmap = fg;
+            mLianhuaBitmap = bg;
         });
     }
 
