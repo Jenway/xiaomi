@@ -40,7 +40,7 @@ public class RenderActivity extends Activity implements SurfaceHolder.Callback {
             Bitmap bg = BitmapFactory.decodeResource(getResources(), R.drawable.lianhua);
             Surface surface = holder.getSurface();
 
-            runOnUiThread(() -> render(bg, fg, surface));
+            render(bg, fg, surface);
         });
     }
 

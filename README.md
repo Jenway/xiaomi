@@ -266,7 +266,7 @@ public void surfaceCreated(@NonNull SurfaceHolder holder) {
 
 用一个子线程执行即可（省略 LOG 函数的调用）
 
-```JAVA
+```java
   @Override
   public void surfaceCreated(@NonNull SurfaceHolder holder) {
       Executors.newSingleThreadExecutor().execute(() -> {
@@ -290,8 +290,71 @@ public void surfaceCreated(@NonNull SurfaceHolder holder) {
 
 ![alt text](assets/image-3.png)
 
+值得一提的是右上角的主线程那一块应该就是 JNI 调用，因为它正好在 decode 完成后才开始，可以看出它们蛮快的，似乎不占大头，所以我们往左边看
+
 不过很不幸，我们仍能看到 `Skipped 36 frames!  The application may be doing too much work on its main thread.` log，让我们继续观察 profiler
 
+发现主线程左侧最大的一块是 `Choreographer#doFrame`
+
+ask LLM：
+
+> 它的功能是：
+> 
+> 收集当帧的绘制任务（Measure/Layout/Draw/Render），调度到下一帧 vsync。
+>
+> 所以：
+>
+> 如果你看到 Choreographer#doFrame 一直在 trace 里持续存在 → 说明它 卡在等待前面那些绘制任务完成。
+> 
+> 所以它报出 Skipped XX frames 的根本原因是：它调不动帧，因为前面的任务（decode、IO、绘制等）阻塞了主线程。
+
+所以，看起来 尽管 JNI Native 函数很快，但他还是会阻塞主线程，所以我们干脆把它也放到子线程里
+
+把 `runOnUiThread(() -> render(bg, fg, surface));` 改为直接调用即可
+
+> 其实这个地方我感觉到很怪，按理说这样不需要考虑数据保护问题吗？但他竟然运行的很好
+>
+> 于是我问 LLM:
+> 
+> *注意：**如果 render 内部调用了 Android UI 相关接口（如 Canvas、View 操作），需要在 UI 线程调用；如果全部是 Native 层渲染或 OpenGL ES 渲染绑定，这样放子线程是合适的。
+>
+> 我们的 render 似乎刚好合适呢hh
+
+
+![alt text](assets/profiler2.png)
+
+![alt text](assets/profiler3.png)
+
+可以看出这一次 JNI 调用也被放到了子线程里，所以不会阻塞主线程了，肉眼可见的流畅了些
+
+再次回到 logcat
+
+![alt text](assets/profiler.png)
+
+可以看到 `Skipped xx frames!  The application may be doing too much work on its main thread.` log 没有了，说明还是有优化的
+
+优化 IO 阻塞后已经比较流畅，况且 NATIVE render 函数运行的时间本来就挺短，优化 Native 具体实现的回报也不高（其实是我太懒了hh），所以这个作业就这样了吧
+
+要说优化的其实还可以这样做：
+
+现在是把两张图片都 decode 完才去调用 render，要是图片变多那中间就会等很长时间
+
+或许可以暴露 update texture 和 draw compositon 接口，每 decode 一张图片就调用一次 update texture
+
+等到全读完图片接着再 draw compositon 去渲染
+
+如果这样做的话，我们还可以开多个线程来 decode 图片，每个线程 decode 一张图片
+
+> 不过这样就真的得加锁了吧hh
+
+
+#### MISC
+
+很不幸，把这个修改后的代码也提交到 part1 里了，不过也没有必要分开，IO 线程单独分开算是个蛮常见的操作吧？
+
+所以 Part2 就不单独提交了
+
+又很不幸，之前的图片都用 LFS track 的，这次忘了，也懒得再改了hh
 
 ___
 

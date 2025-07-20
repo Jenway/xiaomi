@@ -51,6 +51,40 @@ const char* eglErrorStr(EGLint error) {
 // 执行完gl命令后，可以用这个宏定义检查gl命令执行完是否有错误
 #define CHECK_GL() eglErrorStr(eglGetError())
 
+void getTargetPosition(int32_t width, int32_t height,
+                       glDisplayer::ImageDesc &fgDesc, glDisplayer::ImageDesc &bgDesc) {
+//====================== 设置尺寸
+// 缩放比例
+    const float fgScale = 1.0f / 6.0f;
+    const float bgScale = 1.0f / 5.0f;
+    const float overlapFactor = 0.48f;
+
+// 计算缩放后的宽高
+    fgDesc.displayWidth = static_cast<float>(fgDesc.imgWidth) * fgScale;
+    fgDesc.displayHeight = static_cast<float>(fgDesc.imgHeight) * fgScale;
+    bgDesc.displayWidth = static_cast<float>(bgDesc.imgWidth) * bgScale;
+    bgDesc.displayHeight = static_cast<float>(bgDesc.imgHeight) * bgScale;
+
+//    水平方向两图居中
+    fgDesc.posX = ( static_cast<float>(width) / 2.0f )
+                  - ( fgDesc.displayWidth / 2.0f );
+    bgDesc.posX = ( static_cast<float>(width) / 2.0f )
+                  - ( bgDesc.displayWidth / 2.0f );
+
+//    垂直方向重叠一小部分
+    float overlapAmount = fgDesc.displayHeight * overlapFactor;
+    float combinedRenderHeight = fgDesc.displayHeight
+                                 + bgDesc.displayHeight
+                                 - overlapAmount;
+    float screenCenterY = static_cast<float>(height) / 2.0f;
+    fgDesc.posY = screenCenterY - ( combinedRenderHeight / 2.0f );
+    bgDesc.posY =
+            screenCenterY
+            - ( combinedRenderHeight / 2.0f )
+            + fgDesc.displayHeight
+            + overlapAmount;
+}
+
 /**
  * 实现两张图片在android surfaceview上的显示
  */
@@ -168,40 +202,10 @@ Java_com_mi_renderlib_RenderActivity_render(JNIEnv *env, jobject thiz,
         // 锁定失败，处理
         return;
     }
-
     fgDesc.data = fgPixels;
     bgDesc.data = bgPixels;
+    getTargetPosition(width, height,  fgDesc, bgDesc);
 
-//====================== 设置尺寸
-// 缩放比例
-    const float fgScale = 1.0f / 6.0f;
-    const float bgScale = 1.0f / 5.0f;
-    const float overlapFactor = 0.48f;
-
-// 计算缩放后的宽高
-    fgDesc.displayWidth = static_cast<float>(fgDesc.imgWidth) * fgScale;
-    fgDesc.displayHeight = static_cast<float>(fgDesc.imgHeight) * fgScale;
-    bgDesc.displayWidth = static_cast<float>(bgDesc.imgWidth) * bgScale;
-    bgDesc.displayHeight = static_cast<float>(bgDesc.imgHeight) * bgScale;
-
-//    水平方向两图居中
-    fgDesc.posX = ( static_cast<float>(width) / 2.0f )
-                  - ( fgDesc.displayWidth / 2.0f );
-    bgDesc.posX = ( static_cast<float>(width) / 2.0f )
-                  - ( bgDesc.displayWidth / 2.0f );
-
-//    垂直方向重叠一小部分
-    float overlapAmount = fgDesc.displayHeight * overlapFactor;
-    float combinedRenderHeight = fgDesc.displayHeight
-                                 + bgDesc.displayHeight
-                                 - overlapAmount;
-    float screenCenterY = static_cast<float>(height) / 2.0f;
-    fgDesc.posY = screenCenterY - ( combinedRenderHeight / 2.0f );
-    bgDesc.posY =
-            screenCenterY
-            - ( combinedRenderHeight / 2.0f )
-            + fgDesc.displayHeight
-            + overlapAmount;
 // end 设置尺寸
 // 使用
     static auto glDrawer = glDisplayer::GlBitmapRenderer();
