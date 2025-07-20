@@ -12,10 +12,13 @@ namespace glDisplayer {
         // program: 初始化 shader
         // 初始化 VAO/VBO
         utils::setupQuadGeometry(vao_, vbo_);
-        // 一次性初始化时调用，开启混合
+
+        // 设置参数
+        // 开启混合
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+        
         // 纹理第一次创建时生成对象
         glGenTextures(1, &texture_);
         glGenTextures(1, &fgTexture_);
@@ -31,11 +34,11 @@ namespace glDisplayer {
         };
 
         // Use the lambdas to clean up
-        safeGlDelete(texture_, glDeleteTextures); // If you have a general 'texture_'
+        safeGlDelete(texture_, glDeleteTextures); 
         safeGlDelete(fgTexture_, glDeleteTextures);
         safeGlDelete(bgTexture_, glDeleteTextures);
         safeGlDelete(vbo_, glDeleteBuffers);
-        safeGlDelete(vao_, glDeleteVertexArrays); // glDeleteVertexArrays is correct for VAOs
+        safeGlDelete(vao_, glDeleteVertexArrays); 
 
         if (program_ != 0) {
             glDeleteProgram(program_);

@@ -12,7 +12,8 @@ import android.view.SurfaceView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import java.util.function.Function;
+import java.util.concurrent.Executors;
+
 
 public class RenderActivity extends Activity implements SurfaceHolder.Callback {
     static {
@@ -34,20 +35,25 @@ public class RenderActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public void surfaceCreated(@NonNull SurfaceHolder holder) {
-        mCarBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.car);
-        mTaiyiBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.taiyi);
-        mLianhuaBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.lianhua);
+        Executors.newSingleThreadExecutor().execute(() -> {
+            Bitmap fg = BitmapFactory.decodeResource(getResources(), R.drawable.taiyi);
+            Bitmap bg = BitmapFactory.decodeResource(getResources(), R.drawable.lianhua);
+            Surface surface = holder.getSurface();
 
-        // Add logging to verify the dimensions on the Java side
-        Log.d("RenderActivity", "Loaded mCarBitmap dimensions: " + mCarBitmap.getWidth() + "x" + mCarBitmap.getHeight());
-        Log.d("RenderActivity", "Loaded mTaiyiBitmap dimensions: " + mTaiyiBitmap.getWidth() + "x" + mTaiyiBitmap.getHeight());
-        Log.d("RenderActivity", "Loaded mLianhuaBitmap dimensions: " + mLianhuaBitmap.getWidth() + "x" + mLianhuaBitmap.getHeight());
+            runOnUiThread(() -> render(bg, fg, surface));
+        });
     }
+
 
     @Override
     public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
-        Log.d("MI", "surfaceChanged");
-        render(mLianhuaBitmap,mTaiyiBitmap, holder.getSurface());
+        Log.d("MI", "surfaceChanged - Surface size changed to " + width + "x" + height);
+        if (mLianhuaBitmap != null && mTaiyiBitmap != null) {
+            Log.d("MI", "Calling native render with loaded bitmaps. Lianhua: " + mLianhuaBitmap.hashCode() + ", Taiyi: " + mTaiyiBitmap.hashCode());
+            render(mLianhuaBitmap, mTaiyiBitmap, holder.getSurface());
+        } else {
+            Log.w("MI", "Bitmaps not yet loaded when surfaceChanged was called. mLianhuaBitmap is null: " + (mLianhuaBitmap == null) + ", mTaiyiBitmap is null: " + (mTaiyiBitmap == null));
+        }
     }
 
     @Override

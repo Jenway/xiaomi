@@ -76,7 +76,7 @@ void GlBitmapRenderer::drawComposite(const ImageDesc &bg, const ImageDesc &fg, i
 }
 ```
 
-#### Render 的实现
+#### RenderAt 的实现
 
 `renderAt` 使将 img 描述的纹理绘制到指定的屏幕位置（img.posX, img.posY），并进行适当的缩放（img.displayWidth, img.displayHeight）。
 
@@ -115,7 +115,7 @@ float model[16] = {
 
 #### Shader
 
-比较重要的是 vertex shader ，因为需要它来对坐标进行操作，已经整体缩放和平移
+比较重要的是 vertex shader ，因为需要它来对坐标进行操作，以及整体缩放和平移
 
 ``` GLSL
 #version 300 es
@@ -177,9 +177,125 @@ glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 - 绘制成两个三角形的 strip，形成一个矩形
 - 根据传入的纹理坐标，将纹理贴图绘制到这个矩形上
 
+### 文件结构
+
+这次没有动 UI 代码，所以主要就是几个 CPP 程序
+
+> Android Studio 创建 CPP 类默认把头文件和源文件都放在同一个目录下
+>
+> 所以是它干的，不是我的锅hh
+
+``` Powershell
+~/AndroidStudioProjects/coursework-7.20/part1/RenderLib/src/main/cpp
+❯ exa -T
+.
+├── CMakeLists.txt
+├── glBitmapRender.cpp
+├── glBitmapRender.hpp
+├── glDisplayer.cpp
+├── glDisplayer.hpp
+└── renderlib.cpp
+```
+
+所以 `glBitmapRender` 类：
+
+- 在构造函数中初始化 Shader（program）、texture、VAO、VBO
+- 在析构时自动释放资源
+- 提供一个上述 drawComposite 接口
+
+剩下的函数没有必要放到类里，它们与生命周期无关，所以放在 `glDisplayer::utils` 命名空间中，包括：
+
+- 根据 GLSL 字符串参数创建 Shader
+- 调用上面的创建 Shader 创建 program
+- 创建 VAO + VBO
+- 用图片的 RGBA buffer 更新纹理
+- 以及上述的 renderAt 函数
+
+
+- 此外还在 `renderlib.cpp` 的 render 函数中简单调用上述函数，以及（相当麻烦的试参数）让这俩图的位置合适的计算坐标逻辑
+- 在外部 JNI java 桥接类中对 Native 接口暴露一下 `Bitmap` 数据
+
 ### Part 2
 
-(2）对程序进行优化，给出优化思路方案和优化结果。(20分)
+对程序进行优化，给出优化思路方案和优化结果。(20分)
+
+#### 避免重复创建 OpenGL 资源
+
+在 C++ 层引入 GlBitmapRenderer 类持久化资源，避免每次 render 调用都会重新生成 VAO/VBO、Shader、Program、Texture，带来性能浪费
+
+其实这个类 Part 1最开始写就有了，不过凑个数
+
+> 而且实际上，现在这个应用就是显示两张图片叠起来，整个界面一直没有刷新所以也会重新触发 `surfaceChanged`，更不用说多次 render 了 
+>
+> 如果打个 log ，会发现 drawComposite 函数就被调用一次，所以目前的场景下这个玩意儿理论上是不会出现明显性能优化的
+
+#### 另外开一个线程来跑 io
+
+上面开玩笑的，要优化那就先看看 log 
+
+![alt text](assets/image.png)
+
+
+``` bash
+2025-07-20 21:45:14.918  4236-4236  Choreographer           com.mi.renderlearn                   I  Skipped 34 frames!  The application may be doing too much work on its main thread.
+```
+
+这说明主线程里有些东西做了太多工作，我们用 profiler （System Trace）看看：
+
+先看主线程：
+
+![alt text](assets/image-1.png)
+
+！DecoderBitMap 花了 29.51% 的时钟时间，看来我们应该尝试把这个放到子线程里
+
+原来的部分是这里：
+
+```java
+@Override
+public void surfaceCreated(@NonNull SurfaceHolder holder) {
+    mCarBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.car);
+    mTaiyiBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.taiyi);
+    mLianhuaBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.lianhua);
+
+    // Add logging to verify the dimensions on the Java side
+    Log.d("RenderActivity", "Loaded mCarBitmap dimensions: " + mCarBitmap.getWidth() + "x" + mCarBitmap.getHeight());
+    Log.d("RenderActivity", "Loaded mTaiyiBitmap dimensions: " + mTaiyiBitmap.getWidth() + "x" + mTaiyiBitmap.getHeight());
+    Log.d("RenderActivity", "Loaded mLianhuaBitmap dimensions: " + mLianhuaBitmap.getWidth() + "x" + mLianhuaBitmap.getHeight());
+}
+```
+
+用一个子线程执行即可（省略 LOG 函数的调用）
+
+```JAVA
+  @Override
+  public void surfaceCreated(@NonNull SurfaceHolder holder) {
+      Executors.newSingleThreadExecutor().execute(() -> {
+          Bitmap fg = BitmapFactory.decodeResource(getResources(), R.drawable.taiyi);
+          Bitmap bg = BitmapFactory.decodeResource(getResources(), R.drawable.lianhua);
+          Surface surface = holder.getSurface();
+          runOnUiThread(() -> render(bg, fg, surface));
+      });
+  }
+
+
+  @Override
+  public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
+      if (mLianhuaBitmap != null && mTaiyiBitmap != null) {
+          render(mLianhuaBitmap, mTaiyiBitmap, holder.getSurface());
+      }
+  }
+```
+
+再跑一遍 profiler，可以看到这次 decodeResource 跑在一个单独线程 `pool-4-thread-1` 里，那么这就减轻了主线程的 IO 负担，具体多少取决于图片数量和大小
+
+![alt text](assets/image-3.png)
+
+不过很不幸，我们仍能看到 `Skipped 36 frames!  The application may be doing too much work on its main thread.` log，让我们继续观察 profiler
+
+
+___
+
 作业提交要求：
-(1）第一题提交android工程源码和效果截图
-(2）第二题提交优化方案后的实现思路和优化后的实现代码，以及最终优化效果对比。
+
+1. 第一题提交android工程源码和效果截图
+2. 第二题提交优化方案后的实现思路和优化后的实现代码，以及最终优化效果对比。
