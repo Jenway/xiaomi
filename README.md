@@ -349,6 +349,60 @@ ask LLM：
 
 > 不过这样就真的得加锁了吧hh
 
+话又说回来，真的有必要开多个线程吗？
+
+这里似乎更类似于 IO 多路复用，我们把读文件请求给某个 io_context 让它在完成时 callback updateTexture，在全部结束后再 draw compositon 去渲染
+
+也就是说这里的重点是在于异步 IO，问题来了，我们这里能实现真正的异步 IO 吗（不用前述的多线程分别 decode 然后各自去调用 update texture）
+
+ASK LLM
+
+LLM 认为很难实现，原因有：
+
+> 1. BitmapFactory.decodeResource() 是同步阻塞 API，没有提供“提交解码任务、稍后通知结果”的异步版本。
+> 
+> 2. 解码工作本质是 CPU 密集（特别是 JPEG），也不是纯粹 IO（不像 read() 网络包那样容易注册 IO 事件）。
+> 
+> 3. Android Java 没有提供类似 io_uring、epoll 的文件异步接口。
+
+
+让 LLM 给了个用 Kotlin Coroutine 的示例，不过考虑到解码好像确实是 CPU 密集，可能上协程不一定能比多线程好，当然考虑到数据竞争也不一定？
+
+
+```kotlin
+package com.example.render
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicInteger
+
+object Renderer {
+    init {
+        System.loadLibrary("native_renderer")
+    }
+
+    external fun updateTexture(bitmap: Bitmap, index: Int)
+    external fun drawComposition()
+
+    fun decodeAndRender(context: Context, resIds: List<Int>) {
+        CoroutineScope(Dispatchers.IO).launch {
+            val jobs = resIds.mapIndexed { index, resId ->
+                async {
+                    val bmp = BitmapFactory.decodeResource(context.resources, resId)
+                    updateTexture(bmp, index)  // JNI 调用
+                }
+            }
+
+            jobs.awaitAll()  // 等待所有纹理上传完毕
+            withContext(Dispatchers.Main) {
+                drawComposition()  // 可在主线程或 EGL 渲染线程中触发
+            }
+        }
+    }
+}
+```
 
 #### MISC
 
