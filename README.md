@@ -229,6 +229,8 @@ glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 >
 > 如果打个 log ，会发现 drawComposite 函数就被调用一次，所以目前的场景下这个玩意儿理论上是不会出现明显性能优化的
 
+严肃地说，我的代码中是把 GlBitmapRenderer 对象作为一个 render 函数中的 static 变量存在，这样大概确实可以持久化资源，不过也蛮丑陋，其实应该是有更好的方法的，比如可以在 Java 层维护 GlBitmapRenderer 的句柄并传入 native 层，生命周期由 Java 层显式控制。但我懒得写了，而且现在这个也 just works 嘛
+
 #### 另外开一个线程来跑 io
 
 上面开玩笑的，要优化那就先看看 log 
