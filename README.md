@@ -225,7 +225,7 @@ glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 其实这个类 Part 1最开始写就有了，不过凑个数
 
-> 而且实际上，现在这个应用就是显示两张图片叠起来，整个界面一直没有刷新所以也会重新触发 `surfaceChanged`，更不用说多次 render 了 
+> 而且实际上，现在这个应用就是显示两张图片叠起来，整个界面一直没有刷新所以也不会重新触发 `surfaceChanged`，更不用说多次 render 了 
 >
 > 如果打个 log ，会发现 drawComposite 函数就被调用一次，所以目前的场景下这个玩意儿理论上是不会出现明显性能优化的
 
