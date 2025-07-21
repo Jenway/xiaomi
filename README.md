@@ -193,5 +193,11 @@ run `bash build.sh`
 
 Display 是可以插拔的，比如可以用 libcaca 来实现一个 AsciiArtDisplay
 
+在 `jpegReader` 路径下 run
+
+```bash
+./build/bin/JpegReaderASCII static/logo.jpg
+```
+
 ![ascii display](assets/ascii.png)
 
