@@ -188,3 +188,10 @@ run `bash build.sh`
 ├── static
 │  └── logo.jpg
 ```
+
+#### MISC
+
+Display 是可以插拔的，比如可以用 libcaca 来实现一个 AsciiArtDisplay
+
+![ascii display](assets/ascii.png)
+

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "JpegDecoder.hpp"
-#include <memory>
 
 class ImageDisplay
 {
@@ -9,4 +8,3 @@ class ImageDisplay
     virtual ~ImageDisplay() = default;
     virtual bool display(const ImageData &image) = 0;
 };
-

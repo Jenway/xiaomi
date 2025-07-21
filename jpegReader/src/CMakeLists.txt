@@ -21,3 +21,4 @@ add_dependencies(JpegDecoder external_libjpeg_turbo)
 
 add_subdirectory(opengl)
 add_subdirectory(sdl)
+add_subdirectory(ascii)

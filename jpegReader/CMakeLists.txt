@@ -3,10 +3,12 @@ project(JpegReader LANGUAGES CXX)
 
 include(ExternalProject)
 include(ProcessorCount)
+include(FetchContent)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
+set(CMAKE_BUILD_TYPE Debug)
 
 ProcessorCount(NPROC)
 if(NOT NPROC EQUAL 0)
@@ -26,9 +28,9 @@ ExternalProject_Add(
 
 ExternalProject_Get_Property(external_libjpeg_turbo INSTALL_DIR)
 set(JPEG_TURBO_INSTALL ${INSTALL_DIR})
-
-# Expose to subdirs
 set(JPEG_TURBO_INCLUDE_DIR ${JPEG_TURBO_INSTALL}/include)
 set(JPEG_TURBO_LIB_DIR ${JPEG_TURBO_INSTALL}/lib)
 
 add_subdirectory(src)
+
+
