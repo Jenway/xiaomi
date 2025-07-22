@@ -12,10 +12,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Initialize network library (if network stream)
     avformat_network_init();
 
-    // Open input file
     AVFormatContext* fmt_ctx = nullptr;
     if (avformat_open_input(&fmt_ctx, argv[1], nullptr, nullptr) != 0) {
         std::cerr << "Failed to open input file\n";
@@ -31,9 +29,7 @@ int main(int argc, char* argv[])
     try {
         ffmpeg_utils::PacketRange packet_range(fmt_ctx);
 
-        // Use range-based for loop for clarity, relies on operator*() returning by value
         for (ffmpeg_utils::Packet pkt : packet_range) {
-            // Always check if the packet is valid before using it
             if (pkt.get()) {
                 std::cout << "Packet stream index: " << pkt.streamIndex() << "\n";
             } else {
@@ -42,7 +38,6 @@ int main(int argc, char* argv[])
         }
     } catch (const std::exception& e) {
         std::cerr << "Exception: " << e.what() << "\n";
-        // Close fmt_ctx and deinitialize network here if you return immediately.
         avformat_close_input(&fmt_ctx);
         avformat_network_deinit();
         return 1;

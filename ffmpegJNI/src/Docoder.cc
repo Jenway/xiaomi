@@ -1,10 +1,9 @@
 #include "Decoder.hpp"
-#include "Packet.hpp" // For ffmpeg_utils::Packet
+#include "Packet.hpp"
 
 #include <iostream>
 #include <stdexcept>
 
-// The actual FFmpeg headers are only needed in the .cpp file.
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/error.h>
@@ -70,26 +69,19 @@ void Decoder::run()
 {
     ffmpeg_utils::Packet packet;
 
-    // Main Loop: continue as long as the queue provides packets.
-    // wait_and_pop() will block until a packet is available or the queue is shut down.
     while (queue_.wait_and_pop(packet)) {
-        // Send the packet to the decoder.
-        // A null packet from packet.get() is valid and used for flushing.
+
         int ret = avcodec_send_packet(codec_context_, packet.get());
         if (ret < 0) {
             char err_buf[AV_ERROR_MAX_STRING_SIZE] = { 0 };
             av_strerror(ret, err_buf, sizeof(err_buf));
             std::cerr << "Decoder: Error sending packet to decoder: " << err_buf << std::endl;
-            // Depending on the error, we might want to continue or stop.
-            // For simplicity, we'll continue trying to receive frames.
         }
 
         // After sending a packet, we may be able to receive one or more frames.
         receive_and_process_frames();
     }
 
-    // When the loop finishes, the queue is empty and has been shut down.
-    // We now must flush the decoder to get any remaining buffered frames.
     std::cout << "Decoder: End of packet stream. Flushing decoder..." << std::endl;
     flush_decoder();
 }
@@ -97,8 +89,7 @@ void Decoder::run()
 int Decoder::receive_and_process_frames()
 {
     int ret = 0;
-    // Keep trying to receive frames until the decoder says it needs more data (EAGAIN)
-    // or has no more frames to give (EOF).
+
     while (true) {
         ret = avcodec_receive_frame(codec_context_, decoded_frame_);
 
@@ -107,9 +98,6 @@ int Decoder::receive_and_process_frames()
             // We must unreference the frame to allow it to be reused by the decoder.
             av_frame_unref(decoded_frame_);
         } else {
-            // AVERROR(EAGAIN): Decoder needs more input packets to produce a frame.
-            // AVERROR_EOF: Decoder is fully flushed and has no more output frames.
-            // Other errors: A decoding error occurred.
             break; // Exit the loop on any non-success code.
         }
     }
