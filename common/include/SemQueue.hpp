@@ -1,5 +1,4 @@
 #pragma once
-#include "Packet.hpp"
 #include "Semaphore.hpp"
 #include <mutex>
 #include <queue>
@@ -8,15 +7,16 @@ namespace player_utils {
 
 using counting_semaphore = Semaphore;
 
-class PacketQueue {
+template< typename T>
+class SemQueue {
 public:
-    explicit PacketQueue(size_t max_size)
+    explicit SemQueue(size_t max_size)
         : empty_slots_(max_size)
         , filled_slots_(0)
     {
     }
 
-    void push(ffmpeg_utils::Packet packet)
+    void push(T packet)
     {
         empty_slots_.acquire();
 
@@ -27,7 +27,7 @@ public:
         filled_slots_.release();
     }
 
-    bool wait_and_pop(ffmpeg_utils::Packet& out_packet)
+    bool wait_and_pop(T& out_packet)
     {
 
         filled_slots_.acquire();
@@ -58,7 +58,7 @@ public:
 
 private:
     std::mutex queue_mutex_;
-    std::queue<ffmpeg_utils::Packet> queue_;
+    std::queue<T> queue_;
     bool shutdown_ = false;
 
     counting_semaphore empty_slots_;

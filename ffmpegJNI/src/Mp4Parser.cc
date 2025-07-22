@@ -15,7 +15,10 @@ extern "C" {
 #include "Demuxer.hpp"
 #include "MediaSource.hpp"
 #include "Mp4Parser.hpp"
-#include "PacketQueue.hpp"
+#include "SemQueue.hpp"
+
+using player_utils::SemQueue
+using ffmpeg_utils::Packet
 
 namespace mp4parser {
 
@@ -33,7 +36,7 @@ struct Mp4Parser::Impl {
     bool stopped = false;
 
     std::unique_ptr<MediaSource> source;
-    std::unique_ptr<player_utils::PacketQueue> packet_queue;
+    std::unique_ptr<SemQueue<Packet>> packet_queue;
     std::unique_ptr<Decoder> decoder;
 
     Impl(Config cfg, Callbacks cbs)
@@ -46,7 +49,7 @@ struct Mp4Parser::Impl {
     {
         try {
             source = std::make_unique<MediaSource>(config.file_path);
-            packet_queue = std::make_unique<player_utils::PacketQueue>(config.max_packet_queue_size);
+            packet_queue = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
             auto decoder_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
 
             decoder = std::make_unique<Decoder>(decoder_context, *packet_queue,

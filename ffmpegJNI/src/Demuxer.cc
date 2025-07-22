@@ -1,9 +1,12 @@
 #include "Demuxer.hpp"
 #include <iostream>
 
+using player_utils::SemQueue
+using ffmpeg_utils::Packet
+
 namespace player_utils {
 // --- Demuxer Thread Function (Producer) ---
-void demuxer(AVFormatContext* fmt_ctx, player_utils::PacketQueue& packet_queue, int video_stream_idx)
+void demuxer(AVFormatContext* fmt_ctx, SemQueue<Packet>& packet_queue, int video_stream_idx)
 {
     std::cout << "[Demuxer Thread] Starting...\n";
     ffmpeg_utils::PacketRange packet_range(fmt_ctx);

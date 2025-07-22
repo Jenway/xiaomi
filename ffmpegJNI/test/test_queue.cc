@@ -11,11 +11,14 @@ extern "C" {
 #include "Decoder.hpp"
 #include "Demuxer.hpp"
 #include "MediaSource.hpp"
-#include "PacketQueue.hpp"
+#include "SemQueue.hpp"
 #include "YuvFileSaver.hpp"
 
+using player_utils::SemQueue
+using ffmpeg_utils::Packet
+
 // --- Demuxer Thread Function (Producer) ---
-void demuxer_thread_func(AVFormatContext* fmt_ctx, player_utils::PacketQueue& packet_queue)
+void demuxer_thread_func(AVFormatContext* fmt_ctx, SemQueue<Packet>& packet_queue)
 {
     std::cout << "[Demuxer Thread] Starting...\n";
     try {
@@ -55,7 +58,7 @@ int main(int argc, char* argv[])
     AVFormatContext* fmt_ctx = source.get_format_context();
     int video_stream_index = source.get_video_stream_index();
 
-    player_utils::PacketQueue packet_queue(300);
+    SemQueue<Packet> packet_queue(300);
 
     std::unique_ptr<YuvFileSaver> p_saver;
     auto decoder_context = std::make_shared<DecoderContext>(source.get_video_codecpar());

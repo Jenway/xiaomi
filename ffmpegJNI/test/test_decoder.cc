@@ -11,8 +11,11 @@ extern "C" {
 #include "Decoder.hpp"
 #include "Demuxer.hpp"
 #include "MediaSource.hpp"
-#include "PacketQueue.hpp"
+#include "SemQueue.hpp"
 #include "YuvFileSaver.hpp"
+
+using player_utils::SemQueue
+using ffmpeg_utils::Packet
 
 int main(int argc, char* argv[])
 {
@@ -29,7 +32,7 @@ int main(int argc, char* argv[])
     AVFormatContext* fmt_ctx = source.get_format_context();
     int video_stream_index = source.get_video_stream_index();
 
-    player_utils::PacketQueue packet_queue(300);
+    SemQueue<Packet> packet_queue(300);
 
     std::unique_ptr<YuvFileSaver> p_saver;
     auto decoder_context = std::make_shared<DecoderContext>(source.get_video_codecpar());

@@ -1,6 +1,7 @@
 #pragma once
 #include "DecoderContext.hpp"
-#include "PacketQueue.hpp"
+#include "SemQueue.hpp"
+#include "Packet.hpp"
 #include <functional>
 
 extern "C" {
@@ -13,7 +14,7 @@ public:
     using FrameSink = std::function<void(const AVFrame*)>;
 
     Decoder(std::shared_ptr<DecoderContext> ctx,
-        player_utils::PacketQueue& source_queue,
+        player_utils::SemQueue<ffmpeg_utils::Packet>& source_queue,
         FrameSink frame_sink);
 
     ~Decoder();
@@ -28,7 +29,7 @@ private:
     void flush_decoder();
 
     // --- Member Variables ---
-    player_utils::PacketQueue& queue_;
+    player_utils::SemQueue<ffmpeg_utils::Packet>& queue_;
     std::shared_ptr<DecoderContext> ctx_ = nullptr;
     AVFrame* decoded_frame_ = nullptr;
     FrameSink frame_sink_;
