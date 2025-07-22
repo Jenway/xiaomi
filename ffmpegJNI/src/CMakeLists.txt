@@ -1,5 +1,3 @@
-option(BUILD_ANDROID_LIB "Build Android JNI shared library" ON)
-
 if(BUILD_ANDROID_LIB)
     message(STATUS "Building Android JNI .so with cross-compiled FFmpeg")
 
@@ -11,10 +9,12 @@ if(BUILD_ANDROID_LIB)
 
     target_include_directories(mp4parser_core
         PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
         $<BUILD_INTERFACE:${FFMPEG_ANDROID_INCLUDE_DIR}>
-        # 如果有安装规则，可以用 INSTALL_INTERFACE
+        $<INSTALL_INTERFACE:include>
     )
+    
+    target_link_libraries(mp4parser_core PUBLIC common_includes)
 
     target_compile_features(mp4parser_core PUBLIC cxx_std_17)
 
@@ -24,6 +24,8 @@ if(BUILD_ANDROID_LIB)
 
     target_include_directories(ffmpeg-jw
         PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/common/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
         ${JNI_INCLUDE_DIRS}
         ${FFMPEG_ANDROID_INCLUDE_DIR}
     )
