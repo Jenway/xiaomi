@@ -10,7 +10,6 @@ namespace ffmpeg_utils {
 class Packet {
 public:
     Packet() { pkt_ = av_packet_alloc(); }
-    // Make explicit and public for use by PacketIterator
     explicit Packet(AVPacket* pkt)
         : pkt_(pkt)
     {

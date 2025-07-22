@@ -1,11 +1,3 @@
-#include "Mp4Parser.hpp"
-
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
-}
-
 #include <android/log.h>
 #include <atomic>
 #include <condition_variable>
@@ -13,9 +5,16 @@ extern "C" {
 #include <thread>
 #include <utility>
 
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/imgutils.h>
+}
+
 #include "Decoder.hpp"
 #include "Demuxer.hpp"
 #include "MediaSource.hpp"
+#include "Mp4Parser.hpp"
 #include "PacketQueue.hpp"
 
 namespace mp4parser {
@@ -48,12 +47,14 @@ struct Mp4Parser::Impl {
         try {
             source = std::make_unique<MediaSource>(config.file_path);
             packet_queue = std::make_unique<player_utils::PacketQueue>(config.max_packet_queue_size);
-            decoder = std::make_unique<Decoder>(source->get_video_codecpar(), *packet_queue,
+            auto decoder_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
+
+            decoder = std::make_unique<Decoder>(decoder_context, *packet_queue,
                 [this](const AVFrame* frame) {
                     std::unique_lock<std::mutex> lock(pause_mutex);
                     pause_cv.wait(lock, [this] { return !paused || stopped; });
                     if (callbacks.on_frame_decoded && !stopped)
-                        callbacks.on_frame_decoded(frame);
+                        callbacks.on_frame_decoded(convert_frame(frame));
                 });
 
             set_state(PlayerState::Running);
@@ -166,32 +167,32 @@ Mp4Parser::~Mp4Parser()
     stop();
 }
 
-void log_info(const std::string& msg)
+std::shared_ptr<VideoFrame> convert_frame(const AVFrame* frame)
 {
-    __android_log_print(ANDROID_LOG_INFO, "mp4parser", "%s", msg.c_str());
-}
+    auto out = std::make_shared<VideoFrame>();
+    out->width = frame->width;
+    out->height = frame->height;
+    out->format = static_cast<AVPixelFormat>(frame->format);
+    out->pts = frame->pts;
 
-std::string describe_frame_info(const AVFrame* frame)
-{
-    if (!frame) {
-        return "AVFrame is nullptr";
+    int total_size = 0;
+    for (int i = 0; i < AV_NUM_DATA_POINTERS && frame->data[i]; ++i) {
+        total_size += frame->linesize[i] * (i == 0 ? out->height : out->height / 2);
     }
 
-    std::ostringstream oss;
-    oss << "AVFrame info: ";
-    oss << "width=" << frame->width << ", ";
-    oss << "height=" << frame->height << ", ";
-    oss << "format=" << frame->format << ", ";
-    oss << "pts=" << frame->pts << ", ";
+    out->data.resize(total_size);
+    uint8_t* dst = out->data.data();
 
-    for (int i = 0; i < 4; ++i) {
-        if (frame->data[i]) {
-            oss << "data[" << i << "]=" << static_cast<void*>(frame->data[i])
-                << ", linesize[" << i << "]=" << frame->linesize[i] << "; ";
+    for (int i = 0; i < AV_NUM_DATA_POINTERS && frame->data[i]; ++i) {
+        int height = (i == 0) ? out->height : out->height / 2;
+        int bytes_per_line = frame->linesize[i];
+        for (int row = 0; row < height; ++row) {
+            memcpy(dst, frame->data[i] + row * bytes_per_line, bytes_per_line);
+            dst += bytes_per_line;
         }
+        out->linesize[i] = bytes_per_line;
     }
 
-    return oss.str();
+    return out;
 }
-
 } // namespace mp4parser

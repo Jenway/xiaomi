@@ -1,4 +1,4 @@
-#include "PacketQueue.hpp" // The queue from above
+#include "PacketQueue.hpp"
 
 namespace player_utils {
 void demuxer(AVFormatContext* fmt_ctx, player_utils::PacketQueue& packet_queue, int video_stream_idx);
@@ -9,7 +9,7 @@ namespace ffmpeg_utils {
 class PacketIterator {
 public:
     using iterator_category = std::input_iterator_tag;
-    using value_type = Packet; // The type returned by * (by value)
+    using value_type = Packet;
 
     PacketIterator(AVFormatContext* fmt_ctx, bool end = false);
 

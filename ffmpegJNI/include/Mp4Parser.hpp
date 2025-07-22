@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-struct AVFrame; // FFmpeg 结构体前向声明
+struct AVFrame;
 
 namespace mp4parser {
 
@@ -16,15 +16,25 @@ enum class PlayerState {
     Error,
 };
 
+struct VideoFrame {
+    int width;
+    int height;
+    int format;
+    std::vector<uint8_t> data;
+    int linesize[8];
+    int64_t pts;
+};
+
+std::shared_ptr<VideoFrame> convert_frame(const AVFrame* frame);
+
 struct Config {
     std::string file_path;
     int max_packet_queue_size = 300;
 };
 
-// 用户设置的回调
 struct Callbacks {
-    std::function<void(const AVFrame* frame)> on_frame_decoded;
-    std::function<void(PlayerState state)> on_state_changed;
+    std::function<void(std::shared_ptr<VideoFrame>)> on_frame_decoded;
+    std::function<void(PlayerState& state)> on_state_changed;
     std::function<void(const std::string& msg)> on_error;
 };
 
@@ -36,12 +46,12 @@ public:
     void pause(); // 请求暂停（阻塞 decoder 线程）
     void resume(); // 恢复运行
     void stop(); // 停止线程，释放资源
-    PlayerState get_state() const;
+    [[nodiscard]] PlayerState get_state() const;
 
     ~Mp4Parser();
 
 private:
-    Mp4Parser() = default; // 使用 create 工厂构造
+    Mp4Parser() = default;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

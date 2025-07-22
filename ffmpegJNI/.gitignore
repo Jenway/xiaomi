@@ -6,3 +6,7 @@ output.mp4
 compile_commands.json
 build
 build_android
+.gradle/
+build/
+.idea/
+out/

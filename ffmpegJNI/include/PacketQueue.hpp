@@ -1,6 +1,6 @@
 #pragma once
 #include "Packet.hpp"
-#include "Semaphore.hpp" // Assuming the class above is in this file
+#include "Semaphore.hpp"
 #include <mutex>
 #include <queue>
 
@@ -16,7 +16,6 @@ public:
     {
     }
 
-    // Push a packet. Blocks if the queue is full.
     void push(ffmpeg_utils::Packet packet)
     {
         empty_slots_.acquire();

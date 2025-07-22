@@ -28,12 +28,13 @@ int main(int argc, char* argv[])
     MediaSource source(filename);
     AVFormatContext* fmt_ctx = source.get_format_context();
     int video_stream_index = source.get_video_stream_index();
-    AVCodecParameters* pCodecPar = source.get_video_codecpar();
 
     player_utils::PacketQueue packet_queue(300);
 
     std::unique_ptr<YuvFileSaver> p_saver;
-    Decoder decoder(pCodecPar, packet_queue, [&](const AVFrame* frame) {
+    auto decoder_context = std::make_shared<DecoderContext>(source.get_video_codecpar());
+
+    Decoder decoder(decoder_context, packet_queue, [&](const AVFrame* frame) {
         if (!p_saver) {
             p_saver = std::make_unique<YuvFileSaver>("output.yuv", frame->width, frame->height);
         }
@@ -41,8 +42,8 @@ int main(int argc, char* argv[])
     });
 
     std::cout << "[Main] Open video_stream_index: " << video_stream_index
-              << "width: " << decoder.get_width()
-              << " height :" << decoder.get_height() << "\n";
+              << "width: " << decoder_context->width()
+              << " height :" << decoder_context->height() << "\n";
 
     std::thread demuxer_thread([&fmt_ctx, &packet_queue, &video_stream_index]() {
         try {

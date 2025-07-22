@@ -40,29 +40,6 @@ void demuxer_thread_func(AVFormatContext* fmt_ctx, player_utils::PacketQueue& pa
     std::cout << "[Demuxer Thread] Exiting.\n";
 }
 
-void decoder_thread_func(player_utils::PacketQueue& packet_queue)
-{
-    std::cout << "[Decoder Thread] Starting...\n";
-    int decoded_packet_count = 0;
-    while (true) {
-        ffmpeg_utils::Packet packet;
-        if (!packet_queue.wait_and_pop(packet)) {
-            std::cout << "[Decoder Thread] Queue shut down and empty. Exiting loop.\n";
-            break;
-        }
-
-        if (packet.get()) {
-            std::cout << "[Decoder Thread] Received packet (stream: " << packet.streamIndex() << ") - Decoding...\n";
-            decoded_packet_count++;
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        } else {
-            std::cerr << "[Decoder Thread] Error: Received a null packet from queue!\n";
-        }
-    }
-    std::cout << "[Decoder Thread] Decoded " << decoded_packet_count << " packets.\n";
-    std::cout << "[Decoder Thread] Exiting.\n";
-}
-
 int main(int argc, char* argv[])
 {
     if (argc < 2) {
@@ -77,20 +54,24 @@ int main(int argc, char* argv[])
     MediaSource source(filename);
     AVFormatContext* fmt_ctx = source.get_format_context();
     int video_stream_index = source.get_video_stream_index();
-    AVCodecParameters* pCodecPar = source.get_video_codecpar();
 
     player_utils::PacketQueue packet_queue(300);
 
     std::unique_ptr<YuvFileSaver> p_saver;
-    Decoder decoder(pCodecPar, packet_queue, [&](const AVFrame* frame) {
-        if (!p_saver) {
-            p_saver = std::make_unique<YuvFileSaver>("output.yuv", frame->width, frame->height);
-        }
-        p_saver->save_frame(frame);
+    auto decoder_context = std::make_shared<DecoderContext>(source.get_video_codecpar());
+
+    Decoder decoder(decoder_context, packet_queue, [&](const AVFrame* frame) {
+        std::cout << frame->width << " * " << frame->height << "\n";
     });
 
     std::thread demuxer_thread(demuxer_thread_func, fmt_ctx, std::ref(packet_queue));
-    std::thread decoder_thread(decoder_thread_func, std::ref(packet_queue));
+    std::thread decoder_thread([&decoder]() {
+        try {
+            decoder.run();
+        } catch (const std::exception& e) {
+            std::cerr << "[Decoder Thread] Exception: " << e.what() << "\n";
+        }
+    });
 
     demuxer_thread.join();
     decoder_thread.join();
