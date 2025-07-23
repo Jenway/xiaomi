@@ -1,10 +1,14 @@
-#include "Mp4Parser.hpp" // Header should be first
+#include "Mp4Parser.hpp"
+#include "BinarySemaphore.hpp"
+#include "Decoder.hpp"
 #include "DecoderContext.hpp"
+#include "Demuxer.hpp"
+#include "MediaSource.hpp"
+#include "Mp4Parser/FrameProcessor.hpp"
+#include "SemQueue.hpp"
 
 #include <android/log.h>
 #include <atomic>
-#include <cinttypes> // For PRId64 format specifier
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -18,12 +22,6 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-// Your project's internal headers
-#include "Decoder.hpp"
-#include "Demuxer.hpp"
-#include "MediaSource.hpp"
-#include "SemQueue.hpp"
-
 // Define logging macros for convenience
 #define LOG_TAG "Mp4Parser"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -35,25 +33,6 @@ using player_utils::SemQueue;
 
 namespace mp4parser {
 
-// Helper function for readable log output
-static const char* state_to_string(PlayerState state)
-{
-    switch (state) {
-    case PlayerState::Stopped:
-        return "Stopped";
-    case PlayerState::Running:
-        return "Running";
-    case PlayerState::Paused:
-        return "Paused";
-    case PlayerState::Finished:
-        return "Finished";
-    case PlayerState::Error:
-        return "Error";
-    default:
-        return "Unknown";
-    }
-}
-
 struct Mp4Parser::Impl {
     Config config;
     Callbacks callbacks;
@@ -63,10 +42,8 @@ struct Mp4Parser::Impl {
     std::thread decoder_thread;
 
     // --- Synchronization ---
-    std::mutex control_mutex_; // Protects all public control methods
-    std::mutex pause_mutex_;
-    std::condition_variable pause_cv_;
-    std::atomic<bool> paused_ { false };
+    std::mutex control_mutex_;
+    player_utils::BinarySemaphore run_gate_ { true }; // 初始为true, 表示门是开的 (可以运行)
     std::atomic<bool> stop_requested_ { false };
 
     // --- Core Components ---
@@ -100,24 +77,27 @@ struct Mp4Parser::Impl {
 
         try {
             stop_requested_ = false;
-            paused_ = false;
 
             source = std::make_unique<MediaSource>(config.file_path);
             packet_queue = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
 
             // The callback passed to the decoder, which will push frames out
             auto on_frame_decoded_cb = [this](const AVFrame* frame) {
-                // pause
-                {
-                    std::unique_lock<std::mutex> lock(pause_mutex_);
-                    pause_cv_.wait(lock, [this] { return !paused_ || stop_requested_; });
-                }
-                if (stop_requested_)
-                    return;
+                // 1. 等待门打开
+                run_gate_.acquire();
 
-                // Convert and submit the frame
+                // 2. 检查是否要退出
+                if (stop_requested_) {
+                    // 如果要退出，不用把门再打开了，因为没人需要通过了
+                    return;
+                }
+
+                // 3. **关键**：立即把门再打开，以便下一次循环可以再次检查
+                run_gate_.release();
+
+                // 4. 在门外执行耗时操作
                 if (callbacks.on_frame_decoded) {
-                    callbacks.on_frame_decoded(convert_frame(frame));
+                    callbacks.on_frame_decoded(convert_frame(source->get_video_stream(), frame));
                 }
             };
             auto codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
@@ -167,7 +147,7 @@ struct Mp4Parser::Impl {
         if (state != PlayerState::Running)
             return;
         LOGI("Pausing...");
-        paused_ = true;
+        run_gate_.acquire();
         set_state(PlayerState::Paused);
     }
 
@@ -176,9 +156,7 @@ struct Mp4Parser::Impl {
         if (state != PlayerState::Paused)
             return;
         LOGI("Resuming...");
-        std::unique_lock<std::mutex> lock(pause_mutex_);
-        paused_ = false;
-        pause_cv_.notify_all();
+        run_gate_.release();
         set_state(PlayerState::Running);
     }
 
@@ -192,12 +170,10 @@ struct Mp4Parser::Impl {
 
         stop_requested_ = true;
 
-        if (packet_queue)
+        if (packet_queue) {
             packet_queue->shutdown();
-        {
-            std::unique_lock<std::mutex> lock(pause_mutex_);
-            pause_cv_.notify_all();
         }
+        run_gate_.release(); // 打开门，确保正在暂停等待的解码线程能通过并退出
     }
 
     void do_seek(double time_sec)
@@ -227,71 +203,6 @@ struct Mp4Parser::Impl {
         LOGI("Seek completed. Decoder and queue flushed.");
         // Note: No need to pause/resume threads, they will naturally continue
         // from the new position once the queue is populated again.
-    }
-
-    // --- Helpers ---
-    std::shared_ptr<VideoFrame> convert_frame(const AVFrame* frame) const
-    {
-        auto out = std::make_shared<VideoFrame>();
-        out->width = frame->width;
-        out->height = frame->height;
-        out->format = static_cast<AVPixelFormat>(frame->format);
-
-        // 1. 正确转换PTS (显示时间戳)
-        if (frame->pts != AV_NOPTS_VALUE) {
-            AVStream* stream = source->get_video_stream();
-            out->pts = static_cast<double>(frame->pts) * av_q2d(stream->time_base);
-            LOGD("Converting AVFrame: Format=%s, Size=%dx%d, PTS=%.3f",
-                av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format)),
-                frame->width, frame->height, out->pts);
-        } else {
-            out->pts = 0.0;
-            LOGD("Converted frame. No PTS value found.");
-        }
-
-        // --- 拷贝图像数据 ---
-
-        if (!frame->data[0]) {
-            LOGE("AVFrame data[0] is null, cannot convert frame.");
-            return nullptr;
-        }
-
-        // 2. 计算所有平面需要的总字节数
-        int total_size = 0;
-        // 通常对于 YUV420P, 只有 data[0], data[1], data[2] 是有效的
-        for (int i = 0; i < AV_NUM_DATA_POINTERS && (frame->data[i] != nullptr); ++i) {
-            // Y 平面的高度是 frame->height，U和V平面的高度是 frame->height / 2
-            int plane_height = (i == 0) ? frame->height : (frame->height + 1) / 2;
-            total_size += frame->linesize[i] * plane_height;
-        }
-
-        if (total_size <= 0) {
-            LOGE("Calculated total frame size is %d, which is invalid.", total_size);
-            return nullptr;
-        }
-
-        // 3. 为我们自己的 VideoFrame 分配内存
-        out->data.resize(total_size);
-        uint8_t* dst = out->data.data();
-
-        // 4. 逐个平面地拷贝数据，并记录 linesize
-        for (int i = 0; i < AV_NUM_DATA_POINTERS && (frame->data[i] != nullptr); ++i) {
-            int plane_height = (i == 0) ? frame->height : (frame->height + 1) / 2;
-            int bytes_to_copy = frame->linesize[i] * plane_height;
-
-            // 拷贝整个平面
-            memcpy(dst, frame->data[i], bytes_to_copy);
-
-            // 更新目标指针
-            dst += bytes_to_copy;
-
-            // 记录这一平面的 linesize，渲染器会用到它
-            out->linesize[i] = frame->linesize[i];
-        }
-
-        LOGD("Frame data copied, total size: %d bytes.", total_size);
-
-        return out;
     }
 
     void set_state(PlayerState s)
@@ -333,7 +244,6 @@ Mp4Parser::~Mp4Parser()
         impl_.reset();
     }
 }
-
 void Mp4Parser::start()
 {
     if (impl_)
@@ -353,7 +263,6 @@ void Mp4Parser::resume()
     if (impl_)
         impl_->do_resume();
 }
-
 void Mp4Parser::stop()
 {
     if (!impl_)

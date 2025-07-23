@@ -51,5 +51,6 @@ private:
 
 void log_info(const std::string& msg);
 std::string describe_frame_info(const AVFrame* frame);
+const char* state_to_string(PlayerState state);
 
 } // namespace mp4parser

@@ -5,7 +5,15 @@ if(BUILD_ANDROID_LIB)
         message(FATAL_ERROR "Please set FFMPEG_ANDROID_INCLUDE_DIR and FFMPEG_ANDROID_LIB_DIR")
     endif()
 
-    add_library(mp4parser_core STATIC Demuxer.cc Docoder.cc)
+    add_library(mp4parser_core STATIC Demuxer.cc
+        Docoder.cc
+        utils/DecoderContext.cc
+        utils/MediaSource.cc
+        utils/PacketIterator.cc
+        utils/Packet.cc
+        utils/ParserUtils.cc
+        utils/FrameProcessor.cc
+    )
 
     target_include_directories(mp4parser_core
         PUBLIC

@@ -2,6 +2,7 @@
 #include "Packet.hpp"
 
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 extern "C" {
@@ -11,8 +12,9 @@ extern "C" {
 
 using ffmpeg_utils::Packet;
 using player_utils::SemQueue;
+using std::shared_ptr;
 
-Decoder::Decoder(std::shared_ptr<DecoderContext> ctx,
+Decoder::Decoder(shared_ptr<DecoderContext> ctx,
     SemQueue<Packet>& source_queue,
     FrameSink frame_sink)
     : queue_(source_queue)
@@ -33,7 +35,6 @@ Decoder::Decoder(std::shared_ptr<DecoderContext> ctx,
 Decoder::~Decoder()
 {
     av_frame_free(&decoded_frame_);
-    std::cout << "Decoder resources freed." << '\n';
 }
 
 void Decoder::run()
@@ -64,6 +65,7 @@ int Decoder::receive_and_process_frames()
         ret = avcodec_receive_frame(ctx_->get(), decoded_frame_);
 
         if (ret == 0) {
+            // 发送给 Render 的环形缓冲区
             frame_sink_(decoded_frame_);
             av_frame_unref(decoded_frame_);
         } else {

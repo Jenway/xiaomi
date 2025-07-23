@@ -1,6 +1,6 @@
 #pragma once
 #include <fstream>
-#include <stdexcept> // 用于抛出异常
+#include <stdexcept>
 #include <string>
 
 extern "C" {

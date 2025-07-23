@@ -13,7 +13,7 @@ public:
     using iterator_category = std::input_iterator_tag;
     using value_type = Packet;
 
-    PacketIterator(AVFormatContext* fmt_ctx, bool end = false);
+    explicit PacketIterator(AVFormatContext* fmt_ctx, bool end = false);
 
     PacketIterator& operator++();
 
@@ -30,15 +30,12 @@ private:
 
 class PacketRange {
 public:
-    explicit PacketRange(AVFormatContext* ctx)
-        : ctx_(ctx)
-    {
-    }
-    [[nodiscard]] PacketIterator begin() const { return { ctx_, false }; }
-    [[nodiscard]] PacketIterator end() const { return { ctx_, true }; }
+    explicit PacketRange(AVFormatContext* ctx);
+    [[nodiscard]] PacketIterator begin() const { return PacketIterator { ctx_, false }; }
+    [[nodiscard]] PacketIterator end() const { return PacketIterator { ctx_, true }; }
 
 private:
     AVFormatContext* ctx_;
 };
 
-}
+} // namespace ffmpeg_utils

@@ -17,9 +17,7 @@ public:
     Decoder(std::shared_ptr<DecoderContext> ctx,
         player_utils::SemQueue<ffmpeg_utils::Packet>& source_queue,
         FrameSink frame_sink);
-
     ~Decoder();
-
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
@@ -29,7 +27,6 @@ public:
 private:
     int receive_and_process_frames();
 
-    // --- Member Variables ---
     player_utils::SemQueue<ffmpeg_utils::Packet>& queue_;
     std::shared_ptr<DecoderContext> ctx_ = nullptr;
     AVFrame* decoded_frame_ = nullptr;

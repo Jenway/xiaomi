@@ -9,53 +9,16 @@ namespace ffmpeg_utils {
 
 class Packet {
 public:
-    Packet()
-        : pkt_(av_packet_alloc())
-    {
-    }
-    explicit Packet(AVPacket* pkt)
-        : pkt_(pkt)
-    {
-    }
-    ~Packet()
-    {
-        if (pkt_ != nullptr) {
-            av_packet_free(&pkt_);
-        }
-    }
-
-    // 不允许拷贝
+    Packet();
+    explicit Packet(AVPacket* pkt);
+    ~Packet();
     Packet(const Packet&) = delete;
     Packet& operator=(const Packet&) = delete;
+    Packet(Packet&& other) noexcept;
+    Packet& operator=(Packet&& other) noexcept;
 
-    // 允许移动
-    Packet(Packet&& other) noexcept
-        : pkt_(other.pkt_)
-    {
-        other.pkt_ = nullptr;
-    }
-
-    Packet& operator=(Packet&& other) noexcept
-    {
-        if (this != &other) {
-            if (pkt_ != nullptr) {
-                av_packet_free(&pkt_);
-            }
-            pkt_ = other.pkt_;
-            other.pkt_ = nullptr;
-        }
-        return *this;
-    }
-
-    AVPacket* get() const { return pkt_; }
-
-    int streamIndex() const
-    {
-        if (!pkt_) {
-            return -1;
-        }
-        return pkt_->stream_index;
-    }
+    [[nodiscard]] AVPacket* get() const;
+    [[nodiscard]] int streamIndex() const;
 
 private:
     AVPacket* pkt_ = nullptr;
