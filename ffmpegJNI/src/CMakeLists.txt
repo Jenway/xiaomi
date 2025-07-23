@@ -15,27 +15,26 @@ if(BUILD_ANDROID_LIB)
     )
 
     target_link_libraries(mp4parser_core PUBLIC common_includes)
-
     target_compile_features(mp4parser_core PUBLIC cxx_std_17)
 
-    add_library(ffmpeg-jw SHARED Mp4Parser.cc)
+    add_library(mp4parser STATIC Mp4Parser.cc)
 
     find_package(JNI REQUIRED)
 
-    target_include_directories(ffmpeg-jw
+    target_include_directories(mp4parser
         PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
         ${JNI_INCLUDE_DIRS}
         ${FFMPEG_ANDROID_INCLUDE_DIR}
     )
 
-    target_link_directories(ffmpeg-jw
-        PRIVATE
+    target_link_directories(mp4parser
+        PUBLIC
         ${FFMPEG_ANDROID_LIB_DIR}
     )
 
-    target_link_libraries(ffmpeg-jw
-        PRIVATE
+    target_link_libraries(mp4parser
+        PUBLIC
         mp4parser_core
         avcodec
         avformat
@@ -49,8 +48,16 @@ if(BUILD_ANDROID_LIB)
     )
 
 
-    target_compile_features(ffmpeg-jw PUBLIC cxx_std_17)
+    target_compile_features(mp4parser PUBLIC cxx_std_17)
 
+    # No need to install this
+    # install(TARGETS mp4parser_core
+    #     ARCHIVE DESTINATION "${INSTALL_LIB_DIR}"
+    # )
+
+    # install(TARGETS mp4parser
+    #     ARCHIVE DESTINATION "${INSTALL_LIB_DIR}"
+    # )
 else()
     message(STATUS "Building for native test environment")
 

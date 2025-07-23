@@ -14,6 +14,7 @@ PROJECT_ROOT=$(pwd)
 for ABI in "${ANDROID_ABIS[@]}"; do
     BUILD_DIR="$PROJECT_ROOT/build_android/$ABI"
     FFMPEG_ABI_DIR="$FFMPEG_BUILD_BASE_DIR/$ABI"
+    INSTALL_DIR="$PROJECT_ROOT/install"
 
     echo ">> Building for ABI: $ABI"
     echo ">> FFmpeg libraries for this ABI expected at: $FFMPEG_ABI_DIR"
@@ -34,12 +35,17 @@ for ABI in "${ANDROID_ABIS[@]}"; do
         -DBUILD_ANDROID_LIB=ON \
         -DFFMPEG_ANDROID_INCLUDE_DIR="$FFMPEG_ABI_DIR/include" \
         -DFFMPEG_ANDROID_LIB_DIR="$FFMPEG_ABI_DIR/lib_static" \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
         .
 
     cmake --build "$BUILD_DIR" -- -j$(nproc)
 
     echo ">> Output for $ABI is at: $BUILD_DIR"
     echo
+
+    cmake --install "$BUILD_DIR"
+
+    echo ">> Installed files for $ABI at: $INSTALL_DIR/lib/$ABI"
 done
 
 # Optional for IDEs.

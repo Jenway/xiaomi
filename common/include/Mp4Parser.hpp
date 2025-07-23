@@ -1,6 +1,6 @@
 #pragma once
+#include "Entitys.hpp"
 
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -9,6 +9,7 @@
 struct AVFrame;
 
 namespace mp4parser {
+using player_utils::VideoFrame;
 
 enum class PlayerState : uint8_t {
     Stopped,
@@ -16,15 +17,6 @@ enum class PlayerState : uint8_t {
     Paused,
     Finished,
     Error,
-};
-
-struct VideoFrame {
-    int width;
-    int height;
-    int format;
-    std::vector<uint8_t> data;
-    std::array<int, 8> linesize;
-    int64_t pts;
 };
 
 std::shared_ptr<VideoFrame> convert_frame(const AVFrame* frame);
