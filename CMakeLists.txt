@@ -16,6 +16,7 @@ install(FILES
     "${PROJECT_SOURCE_DIR}/common/include/Entitys.hpp"
     "${PROJECT_SOURCE_DIR}/common/include/GLRenderHost.hpp"
     "${PROJECT_SOURCE_DIR}/common/include/Mp4Parser.hpp"
+    "${PROJECT_SOURCE_DIR}/common/include/NativePlayer.hpp"
     DESTINATION "${INSTALL_INCLUDE_DIR}"
 )
 
@@ -29,7 +30,7 @@ target_include_directories(common_includes INTERFACE
 add_subdirectory(ffmpegJNI)
 add_subdirectory(videoFrameRender)
 
-add_library(ffmpeg-jw SHARED common/src/dummy.cc)
+add_library(ffmpeg-jw SHARED common/src/NativePlayer.cc)
 
 set_target_properties(ffmpeg-jw PROPERTIES
     OUTPUT_NAME "ffmpeg-jw"

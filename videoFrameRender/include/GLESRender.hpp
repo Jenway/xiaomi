@@ -26,7 +26,7 @@ public:
     ~GLESRender();
 
     bool init();
-    void paint(std::shared_ptr<VideoFrame> frame_to_draw);
+    void paint(const std::shared_ptr<VideoFrame>& frame_to_draw);
     void on_viewport_change(int width, int height);
 
 private:

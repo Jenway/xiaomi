@@ -36,6 +36,7 @@ public:
 
     [[nodiscard]] bool empty() const { return size_ == 0; }
     [[nodiscard]] bool full() const { return size_ == N; }
+    [[nodiscard]] size_t size() const { return size_; }
 
 private:
     std::array<T, N> buffer_;

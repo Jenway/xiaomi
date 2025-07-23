@@ -28,9 +28,9 @@ bool EGLCore::initDisplay()
         return false;
     }
 
-    EGLint major;
-    EGLint minor;
-    if (eglInitialize(display_, &major, &minor) == 0u) {
+    EGLint major = 0;
+    EGLint minor = 0;
+    if (eglInitialize(display_, &major, &minor) == 0U) {
         LOGE("Failed to initialize EGL. Error: 0x%x", eglGetError());
         display_ = EGL_NO_DISPLAY;
         return false;
@@ -42,7 +42,7 @@ bool EGLCore::initDisplay()
 
 bool EGLCore::chooseConfig()
 {
-    EGLint num_configs;
+    EGLint num_configs = 0;
     if ((eglChooseConfig(display_, ATTRIB_LIST, &config_, 1, &num_configs) == 0U) || num_configs == 0) {
         LOGE("Failed to choose EGL config. Error: 0x%x", eglGetError());
         release();
@@ -87,7 +87,7 @@ bool EGLCore::createSurface(ANativeWindow* window)
 bool EGLCore::makeCurrent()
 {
 
-    if (eglMakeCurrent(display_, surface_, surface_, context_) == 0u) {
+    if (eglMakeCurrent(display_, surface_, surface_, context_) == 0U) {
         LOGE("Failed to make EGL context current. Error: 0x%x", eglGetError());
         return false;
     }
@@ -102,7 +102,7 @@ void EGLCore::swapBuffers()
         return;
     }
 
-    if (eglSwapBuffers(display_, surface_) == 0u) {
+    if (eglSwapBuffers(display_, surface_) == 0U) {
         EGLint err = eglGetError();
         if (err == EGL_BAD_SURFACE || err == EGL_CONTEXT_LOST) {
             LOGE("EGL surface lost or context lost. Error: 0x%x", err);

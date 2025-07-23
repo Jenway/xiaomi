@@ -24,10 +24,10 @@ public:
     Decoder& operator=(const Decoder&) = delete;
 
     void run();
+    void flush();
 
 private:
     int receive_and_process_frames();
-    void flush_decoder();
 
     // --- Member Variables ---
     player_utils::SemQueue<ffmpeg_utils::Packet>& queue_;

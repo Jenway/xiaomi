@@ -11,6 +11,6 @@ struct VideoFrame {
     int format;
     std::vector<uint8_t> data;
     std::array<int, 8> linesize;
-    int64_t pts;
+    double pts;
 };
-}
+} // namespace player_utils

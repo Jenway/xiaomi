@@ -18,8 +18,10 @@ public:
     void submitFrame(std::shared_ptr<VideoFrame> frame);
     void drawFrame();
 
+    void seek();
+
 private:
-    GLRenderHost() = default;
+    GLRenderHost();
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

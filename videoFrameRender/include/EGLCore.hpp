@@ -1,7 +1,6 @@
 #pragma once
 #include <EGL/egl.h>
-#include <cstdint>
-#include <memory>
+#include <utility>
 namespace render_utils {
 
 constexpr EGLint ATTRIB_LIST[] = {
@@ -34,7 +33,7 @@ private:
     EGLDisplay display_ = EGL_NO_DISPLAY;
     EGLSurface surface_ = EGL_NO_SURFACE;
     EGLContext context_ = EGL_NO_CONTEXT;
-    EGLConfig config_;
+    EGLConfig config_ {};
 
     bool initDisplay();
     bool chooseConfig();

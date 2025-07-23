@@ -15,11 +15,11 @@ using player_utils::SemQueue;
 Decoder::Decoder(std::shared_ptr<DecoderContext> ctx,
     SemQueue<Packet>& source_queue,
     FrameSink frame_sink)
-    : ctx_(std::move(ctx))
-    , queue_(source_queue)
+    : queue_(source_queue)
+    , ctx_(std::move(ctx))
     , frame_sink_(std::move(frame_sink))
 {
-    if (!ctx_ || !ctx_->get()) {
+    if (!ctx_ || (ctx_->get() == nullptr)) {
         throw std::invalid_argument("Decoder: Invalid DecoderContext.");
     }
     if (!frame_sink_) {
@@ -27,13 +27,13 @@ Decoder::Decoder(std::shared_ptr<DecoderContext> ctx,
     }
 
     decoded_frame_ = av_frame_alloc();
-    std::cout << "Decoder initialized with existing DecoderContext." << std::endl;
+    std::cout << "Decoder initialized with existing DecoderContext." << '\n';
 }
 
 Decoder::~Decoder()
 {
     av_frame_free(&decoded_frame_);
-    std::cout << "Decoder resources freed." << std::endl;
+    std::cout << "Decoder resources freed." << '\n';
 }
 
 void Decoder::run()
@@ -46,13 +46,13 @@ void Decoder::run()
         if (ret < 0) {
             char err_buf[AV_ERROR_MAX_STRING_SIZE] = { 0 };
             av_strerror(ret, err_buf, sizeof(err_buf));
-            std::cerr << "Decoder: Error sending packet to decoder: " << err_buf << std::endl;
+            std::cerr << "Decoder: Error sending packet to decoder: " << err_buf << '\n';
         }
         receive_and_process_frames();
     }
 
-    std::cout << "Decoder: End of packet stream. Flushing decoder..." << std::endl;
-    flush_decoder();
+    std::cout << "Decoder: End of packet stream. Flushing decoder..." << '\n';
+    flush();
 }
 
 int Decoder::receive_and_process_frames()
@@ -74,15 +74,15 @@ int Decoder::receive_and_process_frames()
 }
 
 // 帮助清空 codec 内部缓冲区
-void Decoder::flush_decoder()
+void Decoder::flush()
 {
     int ret = avcodec_send_packet(ctx_->get(), nullptr);
     if (ret < 0) {
-        std::cerr << "Decoder: Error sending flush packet." << std::endl;
+        std::cerr << "Decoder: Error sending flush packet." << '\n';
         return;
     }
     while (receive_and_process_frames() != AVERROR_EOF)
         ;
 
-    std::cout << "Decoder: Flushing complete." << std::endl;
+    std::cout << "Decoder: Flushing complete." << '\n';
 }

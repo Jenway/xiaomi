@@ -19,8 +19,6 @@ enum class PlayerState : uint8_t {
     Error,
 };
 
-std::shared_ptr<VideoFrame> convert_frame(const AVFrame* frame);
-
 struct Config {
     std::string file_path;
     int max_packet_queue_size = 300;
@@ -35,11 +33,12 @@ struct Callbacks {
 class Mp4Parser {
 public:
     static std::unique_ptr<Mp4Parser> create(const Config& config, const Callbacks& callbacks);
-
     void start(); // 启动解码流程（开启两个线程）
     void pause(); // 请求暂停（阻塞 decoder 线程）
     void resume(); // 恢复运行
     void stop(); // 停止线程，释放资源
+    void seek(double time_sec);
+
     [[nodiscard]] PlayerState get_state() const;
 
     ~Mp4Parser();

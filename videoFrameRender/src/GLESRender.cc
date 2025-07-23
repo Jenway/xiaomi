@@ -2,7 +2,6 @@
 
 #include <cassert>
 #include <iostream>
-#include <utility>
 
 namespace render_utils {
 namespace {
@@ -11,7 +10,7 @@ namespace {
     void setupQuadGeometry(GLuint& vao, GLuint& vbo);
 }
 
-static const char* vertex_shader_src = R"(
+constexpr const char* vertex_shader_src = R"(
     attribute vec4 aPosition;
     attribute vec2 aTexCoord;
     uniform mat4 u_mvpMatrix;
@@ -22,7 +21,7 @@ static const char* vertex_shader_src = R"(
     }
 )";
 
-static const char* fragment_shader_src = R"(
+constexpr const char* fragment_shader_src = R"(
     precision mediump float;
     varying vec2 vTexCoord;
     uniform sampler2D tex_y;
@@ -55,7 +54,7 @@ GLESRender::~GLESRender()
 bool GLESRender::init()
 {
     shader_program_ = create_program(vertex_shader_src, fragment_shader_src);
-    if (shader_program_ == 0u) {
+    if (shader_program_ == 0U) {
         std::cerr << "Failed to create shader program" << '\n';
         return false;
     }
@@ -111,11 +110,11 @@ void GLESRender::release_gl()
     }
 }
 
-void GLESRender::paint(std::shared_ptr<VideoFrame> frame_to_draw)
+void GLESRender::paint(const std::shared_ptr<VideoFrame>& frame_to_draw)
 {
     if (!frame_to_draw || frame_to_draw->width == 0 || frame_to_draw->height == 0 || viewport_width_ == 0 || viewport_height_ == 0) {
         // 清除屏幕为黑色，避免残留上一帧
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT);
         return;
     }
@@ -127,8 +126,8 @@ void GLESRender::paint(std::shared_ptr<VideoFrame> frame_to_draw)
     float frame_aspect = static_cast<float>(frame_to_draw->width) / frame_to_draw->height;
     float viewport_aspect = static_cast<float>(viewport_width_) / viewport_height_;
 
-    float scale_x = 1.0f;
-    float scale_y = 1.0f;
+    float scale_x = 1.0F;
+    float scale_y = 1.0F;
 
     if (frame_aspect > viewport_aspect) {
         scale_y = viewport_aspect / frame_aspect;
@@ -137,10 +136,10 @@ void GLESRender::paint(std::shared_ptr<VideoFrame> frame_to_draw)
     }
 
     const float mvpMatrix[16] = {
-        scale_x, 0.0f, 0.0f, 0.0f,
-        0.0f, scale_y, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f
+        scale_x, 0.0F, 0.0F, 0.0F,
+        0.0F, scale_y, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F
     };
 
     // 2. 上传矩阵
@@ -150,7 +149,7 @@ void GLESRender::paint(std::shared_ptr<VideoFrame> frame_to_draw)
     upload_yuv_to_texture(*frame_to_draw);
 
     // 4. 清屏并绘制
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // 设置黑边颜色
+    glClearColor(0.0F, 0.0F, 0.0F, 1.0F); // 设置黑边颜色
     glClear(GL_COLOR_BUFFER_BIT);
     draw_frame();
 
