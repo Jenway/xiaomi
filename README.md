@@ -23,3 +23,23 @@
 上传视频：位于仓库根目录：`Day1.mkv`
 
 哦对了，还有并发线程安全队列代码的正确性，`ffmpegJNI/test/` 路径下有一些测试，其中 `test_queue.cc` 测试了这个队列，实现思路和 Day 5 lab 差不多
+
+## Day2 log
+
+需要使用三个线程，使用第一天编写队列，实现视频播放，无需实现音频
+
+1. 实现 android 下使用 OpenGL ES 显示视频帧模块，可以正常看到画面，无花屏等情况
+2. 播放器支持播放暂停
+3. 播放器支持拖动，可以正常跳转，无花屏情况
+
+
+现在的流程是：`Demuxer + Decoder` -> Mp4 parser 往 VideoFrameRender 的环形缓冲区里提交
+
+环形缓冲区的实现复用了 Day 1 所述并发队列
+
+然后 java 层借助 Choreographer 来定时触发 render 的 paint 
+
+如果 C++ Native 层没有时钟的话那播放速度就和解码速度一样了，所以 C++ Native 层 Render 自己要维护一个时间戳，因此 Decoder 那边得把 pts 转格式后发过来，Render 根据时间戳来判断
+
+上传视频：位于仓库根目录：`Day2.mkv`
+
