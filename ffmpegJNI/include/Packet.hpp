@@ -9,15 +9,19 @@ namespace ffmpeg_utils {
 
 class Packet {
 public:
-    Packet() { pkt_ = av_packet_alloc(); }
+    Packet()
+        : pkt_(av_packet_alloc())
+    {
+    }
     explicit Packet(AVPacket* pkt)
         : pkt_(pkt)
     {
     }
     ~Packet()
     {
-        if (pkt_)
+        if (pkt_ != nullptr) {
             av_packet_free(&pkt_);
+        }
     }
 
     // 不允许拷贝
@@ -34,8 +38,9 @@ public:
     Packet& operator=(Packet&& other) noexcept
     {
         if (this != &other) {
-            if (pkt_)
+            if (pkt_ != nullptr) {
                 av_packet_free(&pkt_);
+            }
             pkt_ = other.pkt_;
             other.pkt_ = nullptr;
         }

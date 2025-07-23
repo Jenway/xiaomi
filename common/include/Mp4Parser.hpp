@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -8,7 +10,7 @@ struct AVFrame;
 
 namespace mp4parser {
 
-enum class PlayerState {
+enum class PlayerState : uint8_t {
     Stopped,
     Running,
     Paused,
@@ -21,7 +23,7 @@ struct VideoFrame {
     int height;
     int format;
     std::vector<uint8_t> data;
-    int linesize[8];
+    std::array<int, 8> linesize;
     int64_t pts;
 };
 

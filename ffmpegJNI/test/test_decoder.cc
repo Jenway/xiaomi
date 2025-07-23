@@ -14,8 +14,8 @@ extern "C" {
 #include "SemQueue.hpp"
 #include "YuvFileSaver.hpp"
 
-using player_utils::SemQueue
-using ffmpeg_utils::Packet
+using ffmpeg_utils::Packet;
+using player_utils::SemQueue;
 
 int main(int argc, char* argv[])
 {

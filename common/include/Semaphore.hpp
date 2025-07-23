@@ -5,7 +5,7 @@ namespace player_utils {
 
 class Semaphore {
 public:
-    explicit Semaphore(int count = 0)
+    explicit Semaphore(int64_t count = 0)
         : count_(count)
     {
     }
@@ -29,6 +29,6 @@ public:
 private:
     std::mutex mutex_;
     std::condition_variable cv_;
-    int count_;
+    int64_t count_;
 };
-}
+} // namespace player_utils

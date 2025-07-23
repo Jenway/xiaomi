@@ -1,8 +1,9 @@
-#include "SemQueue.hpp"
 #include "Packet.hpp"
+#include "SemQueue.hpp"
 
 namespace player_utils {
-void demuxer(AVFormatContext* fmt_ctx, player_utils::SemQueue<ffmpeg_utils::Packet>& packet_queue, int video_stream_idx);
+using ffmpeg_utils::Packet;
+void demuxer(AVFormatContext* fmt_ctx, SemQueue<Packet>& packet_queue, int video_stream_idx);
 }
 
 namespace ffmpeg_utils {

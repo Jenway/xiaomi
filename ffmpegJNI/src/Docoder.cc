@@ -9,11 +9,11 @@ extern "C" {
 #include <libavutil/error.h>
 }
 
-using player_utils::SemQueue
-using ffmpeg_utils::Packet
+using ffmpeg_utils::Packet;
+using player_utils::SemQueue;
 
 Decoder::Decoder(std::shared_ptr<DecoderContext> ctx,
-    SemQueue<Packet>>& source_queue,
+    SemQueue<Packet>& source_queue,
     FrameSink frame_sink)
     : ctx_(std::move(ctx))
     , queue_(source_queue)

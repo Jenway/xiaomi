@@ -1,9 +1,13 @@
+#pragma once
+#include <EGL/egl.h>
+
 class EGLCore {
 public:
     bool init(void* native_window);
     void makeCurrent();
     void swapBuffers();
     void release();
+
 private:
     EGLDisplay display_ = EGL_NO_DISPLAY;
     EGLSurface surface_ = EGL_NO_SURFACE;

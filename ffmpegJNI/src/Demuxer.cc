@@ -1,8 +1,9 @@
 #include "Demuxer.hpp"
+#include "SemQueue.hpp"
 #include <iostream>
 
-using player_utils::SemQueue
-using ffmpeg_utils::Packet
+using ffmpeg_utils::Packet;
+using player_utils::SemQueue;
 
 namespace player_utils {
 // --- Demuxer Thread Function (Producer) ---

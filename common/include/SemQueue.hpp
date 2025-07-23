@@ -7,7 +7,7 @@ namespace player_utils {
 
 using counting_semaphore = Semaphore;
 
-template< typename T>
+template <typename T>
 class SemQueue {
 public:
     explicit SemQueue(size_t max_size)

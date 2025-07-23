@@ -17,8 +17,8 @@ extern "C" {
 #include "Mp4Parser.hpp"
 #include "SemQueue.hpp"
 
-using player_utils::SemQueue
-using ffmpeg_utils::Packet
+using ffmpeg_utils::Packet;
+using player_utils::SemQueue;
 
 namespace mp4parser {
 

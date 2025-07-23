@@ -1,8 +1,9 @@
 #pragma once
 #include "DecoderContext.hpp"
-#include "SemQueue.hpp"
 #include "Packet.hpp"
+#include "SemQueue.hpp"
 #include <functional>
+#include <memory>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
