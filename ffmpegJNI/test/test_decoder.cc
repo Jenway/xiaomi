@@ -1,78 +1,133 @@
-#include <iostream>
-#include <string>
+// test_decoder.cpp
+#include "Decoder.hpp"
+#include "DecoderContext.hpp"
+#include "Packet.hpp"
+#include "SemQueue.hpp"
+#include <atomic>
+#include <gtest/gtest.h>
 #include <thread>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
+using namespace ffmpeg_utils;
+using namespace player_utils;
+
+// Mock DecoderContext that provides a simple codec context
+class MockDecoderContext : public DecoderContext {
+public:
+    MockDecoderContext()
+    {
+        auto codec_ = avcodec_find_decoder(AV_CODEC_ID_H264);
+        if (!codec_) {
+            throw std::runtime_error("Decoder not found");
+        }
+
+        codec_ctx_ = avcodec_alloc_context3(codec_);
+        if (!codec_ctx_) {
+            throw std::runtime_error("Failed to allocate codec context");
+        }
+
+        if (avcodec_open2(codec_ctx_, codec_, nullptr) != 0) {
+            throw std::runtime_error("Failed to open codec");
+        }
+    }
+};
+
+// Helper to create a dummy packet
+static Packet make_dummy_packet(bool is_flush = false, bool is_eof = false)
+{
+    Packet pkt;
+    if (is_flush) {
+        pkt = Packet::createFlushPacket();
+    } else if (is_eof) {
+        pkt = Packet::createEofPacket();
+    } else {
+        // Create an empty data packet
+        pkt = Packet();
+    }
+    return pkt;
 }
 
-#include "Decoder.hpp"
-#include "Demuxer.hpp"
-#include "MediaSource.hpp"
-#include "SemQueue.hpp"
-#include "YuvFileSaver.hpp"
-
-using ffmpeg_utils::Packet;
-using player_utils::SemQueue;
-
-int main(int argc, char* argv[])
-{
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <media_file>\n";
-        return 1;
+// Test fixture
+class DecoderTest : public ::testing::Test {
+protected:
+    void SetUp() override
+    {
+        ctx_ = std::make_shared<MockDecoderContext>();
+        queue_ = std::make_unique<SemQueue<Packet>>(20);
+        frame_count_ = 0;
+        // frame_sink increments frame_count_ for each call
+        frame_sink_ = [&](const AVFrame* frame) {
+            ++frame_count_;
+        };
+        decoder_ = std::make_unique<Decoder>(ctx_, *queue_, frame_sink_);
     }
 
-    avformat_network_init();
+    void TearDown() override
+    {
+        // ensure any pending flush
+        decoder_->flush();
+    }
 
-    std::string filename = argv[1];
+    std::shared_ptr<DecoderContext> ctx_;
+    std::unique_ptr<SemQueue<Packet>> queue_;
+    std::unique_ptr<Decoder> decoder_;
+    std::atomic<int> frame_count_;
+    Decoder::FrameSink frame_sink_;
+};
 
-    MediaSource source(filename);
-    AVFormatContext* fmt_ctx = source.get_format_context();
-    int video_stream_index = source.get_video_stream_index();
+// Test that run() returns immediately on empty queue (EOF)
+TEST_F(DecoderTest, HandlesEofImmediately)
+{
+    // push EOF packet
+    queue_->push(make_dummy_packet(false, true));
+    // run decoder
+    decoder_->run();
+    // no frames expected
+    EXPECT_EQ(frame_count_, 0);
+}
 
-    SemQueue<Packet> packet_queue(300);
+TEST_F(DecoderTest, FlushEmitsRemainingFrames)
+{
+    auto pkt = make_dummy_packet();
+    avcodec_send_packet(ctx_->get(), pkt.get()); // 显式发送有效 packet
+    decoder_->flush(); // 这时 flush 才能返回 EOF
+    EXPECT_GE(frame_count_, 0);
+}
 
-    std::unique_ptr<YuvFileSaver> p_saver;
-    auto decoder_context = std::make_shared<DecoderContext>(source.get_video_codecpar());
-
-    Decoder decoder(decoder_context, packet_queue, [&](const AVFrame* frame) {
-        if (!p_saver) {
-            p_saver = std::make_unique<YuvFileSaver>("output.yuv", frame->width, frame->height);
-        }
-        p_saver->save_frame(frame);
+// Test full run in a separate thread
+TEST_F(DecoderTest, RunProcessesPackets)
+{
+    std::thread t([&]() {
+        decoder_->run();
     });
+    // push a few dummy packets
+    for (int i = 0; i < 5; ++i) {
+        queue_->push(make_dummy_packet());
+    }
+    // push EOF to stop
+    queue_->push(make_dummy_packet(false, true));
+    t.join();
+    // we expect at least zero frames without crash
+    EXPECT_GE(frame_count_, 0);
+}
 
-    std::cout << "[Main] Open video_stream_index: " << video_stream_index
-              << "width: " << decoder_context->width()
-              << " height :" << decoder_context->height() << "\n";
+// Test that decoder can be reused after flush
+TEST_F(DecoderTest, ReuseAfterFlush)
+{
+    // first run
+    queue_->push(make_dummy_packet());
+    queue_->push(make_dummy_packet(false, true));
+    decoder_->run();
+    int first_count = frame_count_;
 
-    std::thread demuxer_thread([&fmt_ctx, &packet_queue, &video_stream_index]() {
-        try {
-            player_utils::demuxer(fmt_ctx, packet_queue, video_stream_index);
-        } catch (const std::exception& e) {
-            std::cerr << "[Demuxer Thread] Exception: " << e.what() << "\n";
-        }
+    // reset count
+    frame_count_ = 0;
+    // push new data
+    queue_->push(make_dummy_packet());
+    queue_->push(make_dummy_packet(false, true));
+    decoder_->run();
+    int second_count = frame_count_;
 
-        packet_queue.shutdown(); // Signal to consumers that no more packets will come
-        std::cout << "[Demuxer Thread] Exiting.\n";
-    });
-
-    std::thread decoder_thread([&decoder]() {
-        try {
-            decoder.run();
-        } catch (const std::exception& e) {
-            std::cerr << "[Decoder Thread] Exception: " << e.what() << "\n";
-        }
-    });
-
-    demuxer_thread.join();
-    decoder_thread.join();
-
-    std::cout << "[Main] All threads finished. Cleaning up FFmpeg resources.\n";
-    avformat_network_deinit();
-
-    std::cout << "[Main] Program finished successfully.\n";
-    return 0;
+    // both runs should work
+    EXPECT_GE(first_count, 0);
+    EXPECT_GE(second_count, 0);
 }

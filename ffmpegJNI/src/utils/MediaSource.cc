@@ -1,7 +1,7 @@
 #include "MediaSource.hpp"
 #include <stdexcept>
 
-MediaSource::MediaSource(const std::string& filename)
+bool MediaSource::open(const std::string& filename)
 {
     avformat_network_init();
     int ret = avformat_open_input(&fmt_ctx_, filename.c_str(), nullptr, nullptr);
@@ -18,6 +18,7 @@ MediaSource::MediaSource(const std::string& filename)
     if (video_stream_index_ < 0) {
         throw std::runtime_error("No video stream found");
     }
+    return true;
 }
 
 MediaSource::~MediaSource()

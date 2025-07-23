@@ -118,7 +118,7 @@ void GLRenderHost::drawFrame()
     auto frame_opt = impl_->frame_queue_.front();
 
     if (!frame_opt) {
-        LOGD("Draw call skipped: Frame queue is empty. Re-rendering last frame.");
+        // LOGD("Draw call skipped: Frame queue is empty. Re-rendering last frame.");
         // 如果队列为空，可以重绘上一帧以避免黑屏
         if (impl_->last_frame_rendered_) {
             impl_->egl_->makeCurrent();

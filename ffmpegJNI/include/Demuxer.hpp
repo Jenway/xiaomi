@@ -1,41 +1,43 @@
+#pragma once
+
+#include "MediaSource.hpp"
 #include "Packet.hpp"
-#include "SemQueue.hpp"
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <thread>
 
-namespace player_utils {
-using ffmpeg_utils::Packet;
-void demuxer(AVFormatContext* fmt_ctx, SemQueue<Packet>& packet_queue, int video_stream_idx);
-}
-
-namespace ffmpeg_utils {
-
-class PacketIterator {
+class Demuxer {
 public:
-    using iterator_category = std::input_iterator_tag;
-    using value_type = Packet;
+    using Packet = ffmpeg_utils::Packet;
+    using PacketSink = std::function<bool(Packet&)>;
 
-    explicit PacketIterator(AVFormatContext* fmt_ctx, bool end = false);
+    explicit Demuxer(std::shared_ptr<MediaSource> source);
+    ~Demuxer();
 
-    PacketIterator& operator++();
+    Demuxer(const Demuxer&) = delete;
+    Demuxer& operator=(const Demuxer&) = delete;
 
-    Packet operator*() { return std::move(current_); }
-    bool operator==(const PacketIterator& other) const;
-    bool operator!=(const PacketIterator& other) const;
+    void Start(PacketSink sink);
+    void Stop();
+    void Pause();
+    void Resume();
+    bool SeekTo(double timestamp_sec);
 
 private:
-    AVFormatContext* ctx_;
-    Packet current_;
-    bool finished_;
-    void advance();
+    void run();
+
+    std::shared_ptr<MediaSource> source_;
+    PacketSink packet_sink_;
+    std::thread demux_thread_;
+
+    std::atomic<bool> stop_requested_ { false };
+    std::atomic<bool> pause_requested_ { false };
+    std::atomic<bool> seek_requested_ { false };
+    std::atomic<double> seek_timestamp_sec_ { 0.0 };
+
+    std::mutex mutex_;
+    std::condition_variable cv_;
 };
-
-class PacketRange {
-public:
-    explicit PacketRange(AVFormatContext* ctx);
-    [[nodiscard]] PacketIterator begin() const { return PacketIterator { ctx_, false }; }
-    [[nodiscard]] PacketIterator end() const { return PacketIterator { ctx_, true }; }
-
-private:
-    AVFormatContext* ctx_;
-};
-
-} // namespace ffmpeg_utils

@@ -9,6 +9,7 @@ class DecoderContext {
 public:
     explicit DecoderContext(const AVCodecParameters* codec_params);
     ~DecoderContext();
+
     DecoderContext(const DecoderContext&) = delete;
     DecoderContext& operator=(const DecoderContext&) = delete;
     DecoderContext(DecoderContext&& other) noexcept;
@@ -19,6 +20,7 @@ public:
     [[nodiscard]] int width() const { return (codec_ctx_ != nullptr) ? codec_ctx_->width : 0; }
     [[nodiscard]] int height() const { return (codec_ctx_ != nullptr) ? codec_ctx_->height : 0; }
 
-private:
+protected:
+    DecoderContext() = default;
     AVCodecContext* codec_ctx_ = nullptr;
 };

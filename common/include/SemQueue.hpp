@@ -25,13 +25,13 @@ public:
      * @brief 阻塞地将一个元素推入队列。如果队列已满，则等待。
      * @param element 要推入的元素。
      */
-    void push(T element)
+    bool push(T element)
     {
         if (shutdown_)
-            return;
+            return false;
         empty_slots_.acquire(); // 等待空槽位
         if (shutdown_)
-            return; // acquire 后再次检查，防止 shutdown 时死锁
+            return false; // acquire 后再次检查，防止 shutdown 时死锁
 
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
@@ -39,6 +39,7 @@ public:
         }
 
         filled_slots_.release(); // 释放一个已填充槽位
+        return true;
     }
 
     // --- 消费者方法 ---

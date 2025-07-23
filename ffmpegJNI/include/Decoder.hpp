@@ -9,26 +9,32 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 }
+#include <thread>
 
 class Decoder {
 public:
     using FrameSink = std::function<void(const AVFrame*)>;
 
     Decoder(std::shared_ptr<DecoderContext> ctx,
-        player_utils::SemQueue<ffmpeg_utils::Packet>& source_queue,
-        FrameSink frame_sink);
+        player_utils::SemQueue<ffmpeg_utils::Packet>& source_queue);
     ~Decoder();
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
-    void run();
     void flush();
+    void Start(FrameSink frame_sink);
+    void Stop();
+    void run();
 
 private:
     int receive_and_process_frames();
+    void flush_eof();
 
     player_utils::SemQueue<ffmpeg_utils::Packet>& queue_;
     std::shared_ptr<DecoderContext> ctx_ = nullptr;
     AVFrame* decoded_frame_ = nullptr;
     FrameSink frame_sink_;
+
+    std::atomic<bool> stop_requested_ { false };
+    std::thread thread_;
 };

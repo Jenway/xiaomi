@@ -8,9 +8,10 @@ extern "C" {
 
 class MediaSource {
 public:
-    explicit MediaSource(const std::string& filename);
+    MediaSource() = default;
     ~MediaSource();
 
+    bool open(const std::string& filename);
     [[nodiscard]] AVFormatContext* get_format_context() const { return fmt_ctx_; }
     [[nodiscard]] int get_video_stream_index() const { return video_stream_index_; }
     [[nodiscard]] AVStream* get_video_stream() const { return fmt_ctx_->streams[video_stream_index_]; }
