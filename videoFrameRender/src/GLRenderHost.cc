@@ -187,7 +187,7 @@ void GLRenderHost::drawFrame()
 }
 
 // ... seek 和 pause 的逻辑也需要修改时钟 ...
-void GLRenderHost::seek()
+void GLRenderHost::flush()
 {
     if (!impl_)
         return;

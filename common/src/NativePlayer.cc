@@ -4,6 +4,7 @@
 #define LOG_TAG "NativePlayer"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 NativePlayer::NativePlayer() = default;
 
@@ -21,6 +22,27 @@ void NativePlayer::setOnStateChangedCallback(std::function<void(PlayerState)> cb
 void NativePlayer::setOnErrorCallback(std::function<void(const std::string&)> cb)
 {
     on_error_cb_ = std::move(cb);
+}
+
+void NativePlayer::seek(double time_sec)
+{
+    // 使用互斥锁保护，防止在 seek 时有其他操作（如 stop）发生
+    std::lock_guard<std::mutex> lock(player_mutex_);
+
+    if (!parser_ || !renderHost_) {
+        LOGI("Cannot seek, player is not in a valid state.");
+        return;
+    }
+
+    LOGI("NativePlayer seeking to %.3f seconds.", time_sec);
+
+    // 1. **首先**，执行 FFmpeg 的 seek。这会清空解码器和 packet 队列。
+    parser_->seek(time_sec);
+
+    // 2. **然后**，清空渲染器的帧队列和时钟。
+    renderHost_->flush();
+
+    LOGI("NativePlayer seek operation completed.");
 }
 
 int NativePlayer::play(const std::string& path, ANativeWindow* window)

@@ -30,6 +30,8 @@ public:
     // 这个方法将会被渲染线程调用
     void onDrawFrame();
 
+    void seek(double time_sec);
+
     // --- Callbacks Setup ---
     void setOnStateChangedCallback(std::function<void(PlayerState)> cb);
     void setOnErrorCallback(std::function<void(const std::string&)> cb);

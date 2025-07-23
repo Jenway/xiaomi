@@ -107,9 +107,11 @@ struct Mp4Parser::Impl {
 
             // The callback passed to the decoder, which will push frames out
             auto on_frame_decoded_cb = [this](const AVFrame* frame) {
-                // Handle pause logic
-                std::unique_lock<std::mutex> lock(pause_mutex_);
-                pause_cv_.wait(lock, [this] { return !paused_ || stop_requested_; });
+                // pause
+                {
+                    std::unique_lock<std::mutex> lock(pause_mutex_);
+                    pause_cv_.wait(lock, [this] { return !paused_ || stop_requested_; });
+                }
                 if (stop_requested_)
                     return;
 
@@ -190,26 +192,12 @@ struct Mp4Parser::Impl {
 
         stop_requested_ = true;
 
-        // Unblock any waiting threads
         if (packet_queue)
             packet_queue->shutdown();
         {
             std::unique_lock<std::mutex> lock(pause_mutex_);
             pause_cv_.notify_all();
         }
-
-        if (demuxer_thread.joinable())
-            demuxer_thread.join();
-        if (decoder_thread.joinable())
-            decoder_thread.join();
-
-        // Reset components
-        decoder.reset();
-        packet_queue.reset();
-        source.reset();
-
-        LOGI("Parser stopped successfully.");
-        set_state(PlayerState::Stopped);
     }
 
     void do_seek(double time_sec)
@@ -368,17 +356,60 @@ void Mp4Parser::resume()
 
 void Mp4Parser::stop()
 {
-    std::lock_guard<std::mutex> lock(impl_->control_mutex_);
-    if (impl_)
+    if (!impl_)
+        return;
+
+    // get Handler
+    std::thread demuxer_to_join;
+    std::thread decoder_to_join;
+
+    {
+        std::lock_guard<std::mutex> lock(impl_->control_mutex_);
+        if (impl_->state.load() == PlayerState::Stopped) {
+            return;
+        }
         impl_->do_stop();
+
+        // get thread Handler
+        if (impl_->demuxer_thread.joinable()) {
+            demuxer_to_join.swap(impl_->demuxer_thread);
+        }
+        if (impl_->decoder_thread.joinable()) {
+            decoder_to_join.swap(impl_->decoder_thread);
+        }
+    }
+    // Real join
+    LOGI("Joining demuxer thread...");
+    if (demuxer_to_join.joinable()) {
+        demuxer_to_join.join();
+    }
+    LOGI("Joining decoder thread...");
+    if (decoder_to_join.joinable()) {
+        decoder_to_join.join();
+    }
+
+    {
+        std::lock_guard<std::mutex> load(impl_->control_mutex_);
+        impl_->decoder.reset();
+        impl_->packet_queue.reset();
+        impl_->source.reset();
+        impl_->set_state(PlayerState::Stopped);
+        LOGI("MP4 Parser Stopped successfully");
+    }
 }
 
 // Add the public seek method
 void Mp4Parser::seek(double time_sec)
 {
     std::lock_guard<std::mutex> lock(impl_->control_mutex_);
-    if (impl_)
+    if (impl_) {
+        auto current_state = impl_->state.load();
+        if (current_state != PlayerState::Running && current_state != PlayerState::Paused) {
+            LOGE("Cannot seek in current state: %s", state_to_string(current_state));
+            return;
+        }
         impl_->do_seek(time_sec);
+    }
 }
 
 PlayerState Mp4Parser::get_state() const

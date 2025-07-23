@@ -18,7 +18,7 @@ public:
     void submitFrame(std::shared_ptr<VideoFrame> frame);
     void drawFrame();
 
-    void seek();
+    void flush();
 
 private:
     GLRenderHost();
