@@ -97,7 +97,7 @@ bool EGLCore::createSurface()
         return false;
     }
 
-    surface_ = eglCreateWindowSurface(display_, config_, window, nullptr);
+    surface_ = eglCreateWindowSurface(display_, config_, window_, nullptr);
     if (surface_ == EGL_NO_SURFACE) {
         LOGE("Failed to create EGL window surface. Error: 0x%x", eglGetError());
         release();

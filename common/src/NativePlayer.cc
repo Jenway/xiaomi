@@ -87,6 +87,8 @@ struct NativePlayer::Impl {
     uint8_t* audio_buffer_ptr_ = nullptr;
     int audio_buffer_size_ = 0;
 
+    std::atomic<bool> is_logically_paused_ { false };
+
 private:
     void handle_play(const CommandPlay& cmd);
     void handle_pause(const CommandPause& cmd);
@@ -244,8 +246,6 @@ void NativePlayer::Impl::fsm_loop()
     LOGI("FSM thread finished.");
 }
 
-// --- 实现内部处理函数 ---
-
 int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData, void* audioData, int32_t numFrames)
 {
     auto* impl = static_cast<NativePlayer::Impl*>(userData);
@@ -258,6 +258,12 @@ int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData
     int32_t bytesPerSample = (format == AAUDIO_FORMAT_PCM_I16) ? sizeof(int16_t) : sizeof(float);
     int32_t bytesNeeded = numFrames * channelCount * bytesPerSample;
     int32_t bytesCopied = 0;
+
+    if (impl->is_logically_paused_) {
+        // 如果是暂停状态，填充静音，并且不从队列取数据，也不推进时钟
+        memset(audioData, 0, bytesNeeded);
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    }
 
     while (bytesCopied < bytesNeeded) {
         if (impl->audio_buffer_ptr_ == nullptr || impl->audio_buffer_size_ == 0) {
@@ -410,13 +416,17 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
 void NativePlayer::Impl::handle_pause(const CommandPause& cmd)
 {
     LOGI("FSM: Handling PAUSE (%d).", cmd.is_paused);
+    is_logically_paused_ = cmd.is_paused;
+
     if (parser_)
         parser_->pause();
     if (renderHost_) {
         cmd.is_paused ? renderHost_->pause() : renderHost_->resume();
     }
-    if (audio_render_)
-        audio_render_->pause(cmd.is_paused);
+
+    // 硬暂停会有某些问题，比如卡死
+    // if (audio_render_)
+    //     audio_render_->pause(cmd.is_paused);
 
     state_ = cmd.is_paused ? PlayerState::Paused : PlayerState::Playing;
     if (on_state_changed_cb_)
