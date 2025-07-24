@@ -273,16 +273,18 @@ private:
     void handle_seek(double time_sec) const
     {
         LOGI("Handling SEEK to %.3f sec...", time_sec);
-        demuxer->SeekTo(time_sec);
-
+        if (demuxer) {
+            demuxer->SeekTo(time_sec);
+        }
         // 修改：清空所有队列和解码器
         if (video_packet_queue_)
             video_packet_queue_->clear();
+        if (audio_packet_queue_)
+            audio_packet_queue_->clear();
+
         if (video_decoder_)
             video_decoder_->flush();
 
-        if (audio_packet_queue_)
-            audio_packet_queue_->clear();
         if (audio_decoder_)
             audio_decoder_->flush();
 
@@ -408,6 +410,7 @@ double Mp4Parser::get_duration()
     }
     return -1.0;
 }
+
 player_utils::AudioParams Mp4Parser::getAudioParams() const
 {
     if (impl_ && impl_->source) {

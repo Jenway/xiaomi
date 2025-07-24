@@ -118,7 +118,11 @@ int Decoder::receive_and_process_frames()
 
 void Decoder::flush()
 {
-    avcodec_flush_buffers(ctx_->get());
+    if (ctx_ && (ctx_->get() != nullptr)) {
+        LOGI("Flushing decoder buffers...");
+        avcodec_flush_buffers(ctx_->get());
+        LOGI("Decoder buffers flushed.");
+    }
 }
 
 void Decoder::flush_eof()

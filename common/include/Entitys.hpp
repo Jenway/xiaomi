@@ -22,16 +22,11 @@ struct AudioParams {
 
 enum class PlayerState {
     None,
+    Playing,
+    Paused,
     End,
-    Idle, // 初始状态，尚未 start
-    Preparing, // 正在初始化资源
-    Ready, // 资源准备完成
-    Playing, // 正在播放
-    Paused, // 已暂停
-    Seeking, // 正在 seek
-    Stopping, // 正在停止中
-    Stopped, // 已停止
-    Error // 错误状态
+    Seeking,
+    Error
 };
 
 inline const char* state_to_string(PlayerState state)
@@ -41,22 +36,12 @@ inline const char* state_to_string(PlayerState state)
         return "End";
     case PlayerState::None:
         return "None";
-    case PlayerState::Idle:
-        return "Idle";
-    case PlayerState::Preparing:
-        return "Preparing";
-    case PlayerState::Ready:
-        return "Ready";
     case PlayerState::Playing:
         return "Playing";
     case PlayerState::Paused:
         return "Paused";
     case PlayerState::Seeking:
         return "Seeking";
-    case PlayerState::Stopping:
-        return "Stopping";
-    case PlayerState::Stopped:
-        return "Stopped";
     case PlayerState::Error:
         return "Error";
     default:

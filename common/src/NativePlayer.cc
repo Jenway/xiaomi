@@ -1,12 +1,12 @@
 #include "NativePlayer.hpp"
 #include "AAudioRender.h"
 #include "Entitys.hpp"
-#include "GLESRender.hpp"
 #include "GLRenderHost.hpp"
 #include "Mp4Parser.hpp"
 #include "SemQueue.hpp"
 #include <aaudio/AAudio.h>
 #include <android/log.h>
+#include <android/native_window.h>
 #include <atomic>
 #include <condition_variable>
 #include <memory>
@@ -55,6 +55,12 @@ struct NativePlayer::Impl {
     ~Impl();
 
     void fsm_loop();
+    void set_state(PlayerState new_state);
+
+    // --- JNI ---
+    JavaVM* jvm_ = nullptr;
+    jobject jni_player_object_ = nullptr;
+    jmethodID on_state_changed_mid_ = nullptr;
 
     // --- 状态和线程 ---
     NativePlayer* self_;
@@ -82,7 +88,7 @@ struct NativePlayer::Impl {
     std::function<void(PlayerState)> on_state_changed_cb_;
     std::function<void(const std::string&)> on_error_cb_;
 
-    // 用于音频数据回调的中间缓冲区
+    // 音频回调缓冲
     std::shared_ptr<AudioFrame> current_audio_frame_;
     uint8_t* audio_buffer_ptr_ = nullptr;
     int audio_buffer_size_ = 0;
@@ -104,15 +110,24 @@ NativePlayer::NativePlayer()
     : impl_(std::make_unique<Impl>(this))
 {
 }
-
 NativePlayer::~NativePlayer()
 {
     LOGI("NativePlayer destructor called.");
+}
+void NativePlayer::setJniEnv(JavaVM* vm, jobject player_object)
+{
+    impl_->jvm_ = vm;
+    impl_->jni_player_object_ = player_object;
 }
 
 void NativePlayer::play(const std::string& path, ANativeWindow* window)
 {
     LOGI("Dispatching PLAY command.");
+    // 关键：在将 window 指针交给内部线程之前，先 acquire 它
+    if (window) {
+        ANativeWindow_acquire(window);
+        LOGI("ANativeWindow acquired in play().");
+    }
     {
         std::lock_guard lock(impl_->queue_mutex_);
         impl_->command_queue_.push(CommandPlay { path, window });
@@ -122,14 +137,13 @@ void NativePlayer::play(const std::string& path, ANativeWindow* window)
 
 void NativePlayer::pause(bool is_paused)
 {
-    LOGI("Dispatching PAUSE command.");
+    LOGI("Dispatching PAUSE command with is_paused = %d", is_paused);
     {
         std::lock_guard lock(impl_->queue_mutex_);
         impl_->command_queue_.push(CommandPause { is_paused });
     }
     impl_->queue_cond_.notify_one();
 }
-
 void NativePlayer::stop()
 {
     LOGI("Dispatching STOP command.");
@@ -148,6 +162,14 @@ void NativePlayer::seek(double time_sec)
         impl_->command_queue_.push(CommandSeek { time_sec });
     }
     impl_->queue_cond_.notify_one();
+}
+
+double NativePlayer::getDuration() const
+{
+    if (impl_ && impl_->parser_) {
+        return impl_->parser_->get_duration();
+    }
+    return 0.0;
 }
 
 void NativePlayer::setOnStateChangedCallback(std::function<void(PlayerState)> cb)
@@ -174,11 +196,18 @@ NativePlayer::Impl::~Impl()
         shutdown_requested_ = true;
         command_queue_.emplace(CommandShutdown {});
     }
-
     queue_cond_.notify_one();
-
     if (fsm_thread_.joinable()) {
         fsm_thread_.join();
+    }
+
+    if ((jvm_ != nullptr) && (jni_player_object_ != nullptr)) {
+        JNIEnv* env = nullptr;
+        if (jvm_->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+            env->DeleteGlobalRef(jni_player_object_);
+            jni_player_object_ = nullptr;
+            LOGI("JNI global reference deleted.");
+        }
     }
 }
 
@@ -244,6 +273,47 @@ void NativePlayer::Impl::fsm_loop()
         }
     }
     LOGI("FSM thread finished.");
+}
+
+void NativePlayer::Impl::set_state(PlayerState new_state)
+{
+    if (state_ == new_state)
+        return;
+
+    state_ = new_state;
+    LOGI("State changed to: %d", static_cast<int>(new_state));
+
+    // 通过 JNI 回调通知 Java 层
+    if (!jvm_ || !jni_player_object_)
+        return;
+
+    JNIEnv* env;
+    bool attached = false;
+    if (jvm_->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (jvm_->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            LOGE("Cannot attach current thread to JVM");
+            return;
+        }
+        attached = true;
+    }
+
+    if (!on_state_changed_mid_) {
+        jclass player_class = env->GetObjectClass(jni_player_object_);
+        on_state_changed_mid_ = env->GetMethodID(player_class, "onNativeStateChanged", "(I)V");
+        env->DeleteLocalRef(player_class);
+        if (!on_state_changed_mid_) {
+            LOGE("Cannot find method onNativeStateChanged(I)V");
+            if (attached)
+                jvm_->DetachCurrentThread();
+            return;
+        }
+    }
+
+    env->CallVoidMethod(jni_player_object_, on_state_changed_mid_, static_cast<jint>(new_state));
+
+    if (attached) {
+        jvm_->DetachCurrentThread();
+    }
 }
 
 int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData, void* audioData, int32_t numFrames)
@@ -407,9 +477,8 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
     parser_->start();
 
     // 7. 切换到播放状态
-    state_ = PlayerState::Playing;
-    if (on_state_changed_cb_)
-        on_state_changed_cb_(state_);
+    set_state(PlayerState::Playing);
+
     LOGI("FSM: Switched to PLAYING state.");
 }
 
@@ -428,27 +497,23 @@ void NativePlayer::Impl::handle_pause(const CommandPause& cmd)
     // if (audio_render_)
     //     audio_render_->pause(cmd.is_paused);
 
-    state_ = cmd.is_paused ? PlayerState::Paused : PlayerState::Playing;
-    if (on_state_changed_cb_)
-        on_state_changed_cb_(state_);
+    set_state(cmd.is_paused ? PlayerState::Paused : PlayerState::Playing);
 }
 
 void NativePlayer::Impl::handle_stop()
 {
     LOGI("FSM: Handling STOP.");
     cleanup_resources();
-    state_ = PlayerState::End;
-    if (on_state_changed_cb_)
-        on_state_changed_cb_(state_);
+    set_state(PlayerState::End);
 }
 
 void NativePlayer::Impl::handle_seek(const CommandSeek& cmd)
 {
     LOGI("FSM: Handling SEEK to %.2f.", cmd.position);
+    set_state(PlayerState::Seeking);
+
     if (parser_)
         parser_->seek(cmd.position);
-
-    // 清空所有缓冲区
     if (renderHost_)
         renderHost_->flush();
     if (audio_render_)
@@ -458,8 +523,14 @@ void NativePlayer::Impl::handle_seek(const CommandSeek& cmd)
     if (audio_frame_queue_)
         audio_frame_queue_->clear();
 
-    // 重置主时钟
     master_clock_pts_ = cmd.position;
+    current_audio_frame_.reset();
+    audio_buffer_ptr_ = nullptr;
+    audio_buffer_size_ = 0;
+
+    LOGI("FSM: Seek command processed. Buffers and clock reset.");
+    // Seek 之后恢复到之前的播放/暂停状态
+    set_state(is_logically_paused_ ? PlayerState::Paused : PlayerState::Playing);
 }
 
 void NativePlayer::Impl::cleanup_resources()
@@ -469,23 +540,37 @@ void NativePlayer::Impl::cleanup_resources()
         parser_->stop();
         parser_.reset();
     }
-
     if (audio_render_) {
-        audio_render_->pause(true);
+        audio_render_->pause(true); // 确保音频流停止
         audio_render_.reset();
     }
     if (renderHost_) {
+        // GLRenderHost::release() 内部会负责释放 ANativeWindow
         renderHost_->release();
         renderHost_.reset();
     }
-
-    // 确保队列被清空和销毁
     if (video_frame_queue_)
         video_frame_queue_->shutdown();
     video_frame_queue_.reset();
     if (audio_frame_queue_)
         audio_frame_queue_->shutdown();
     audio_frame_queue_.reset();
+}
+PlayerState NativePlayer::getState() const
+{
+    if (impl_) {
+        return impl_->state_.load();
+    }
+    return PlayerState::None;
+}
+
+double NativePlayer::getPosition() const
+{
+    if (impl_) {
+        // 直接返回主时钟的当前值
+        return impl_->master_clock_pts_.load();
+    }
+    return 0.0;
 }
 void NativePlayer::Impl::run_sync_cycle()
 {

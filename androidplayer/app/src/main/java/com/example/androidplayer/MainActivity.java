@@ -7,14 +7,13 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Button;
 import android.widget.SeekBar;
+import android.widget.Toast;
 
 import com.example.androidplayer.databinding.ActivityMainBinding;
 
@@ -22,166 +21,191 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
-    // Used to load the 'androidplayer' library on application startup.
-    static {
-        System.loadLibrary("androidplayer");
-    }
+
+    private static final String TAG = "MainActivity";
 
     private Player player;
-    private Handler mHandler;
+    private SurfaceView surfaceView;
+    private Button playPauseButton;
+    private Button stopButton;
     private SeekBar mSeekBar;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    private final ExecutorService playerExecutor = Executors.newSingleThreadExecutor();
+    private Thread progressThread;
+    private boolean isProgressThreadRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
             }
         }
 
-        setContentView(ActivityMainBinding.inflate(getLayoutInflater()).getRoot());
+        ActivityMainBinding binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
 
-        mSeekBar = findViewById(R.id.seekBar);
-
-        mHandler = new Handler(Looper.getMainLooper()) {
-            public void handleMessage(@NonNull Message msg) {
-                super.handleMessage(msg);
-                if (msg.what == 1) {
-                    Bundle bundle = msg.getData();
-                    int progress = bundle.getInt("progress");
-                    mSeekBar.setProgress(progress);
-                }
-            }
-        };
+        surfaceView = binding.surfaceView;
+        playPauseButton = binding.button;
+        stopButton = binding.button2;
+        mSeekBar = binding.seekBar;
 
         player = new Player();
         player.setDataSource("file:/sdcard/test12.mp4");
 
-        ((SurfaceView) findViewById(R.id.surfaceView)).getHolder().addCallback(new SurfaceHolder.Callback() {
+        player.setOnStateChangeListener(this::updateUiForState);
+
+        surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(@NonNull SurfaceHolder holder) {
+                Log.d(TAG, "Surface created.");
                 player.setSurface(holder.getSurface());
             }
 
             @Override
             public void surfaceChanged(@NonNull SurfaceHolder holder, int format, int width, int height) {
-
             }
 
             @Override
             public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
-
+                Log.d(TAG, "Surface destroyed.");
+                playerExecutor.execute(player::stop);
             }
         });
 
-        Thread progressThread = new Thread(() -> {
-            int progress;
-            while (true) {
-                progress = (int) Math.round(player.getProgress() * 100);
-                setSeekBar(progress);
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        });
-        Button play = findViewById(R.id.button);
-        play.setText("播放");
-        play.setOnClickListener(v -> {
-            switch (player.getState()) {
-                case None:
-                case End:
-                    // 1. 在后台线程执行耗时的 player.start()
-                    executor.execute(() -> {
-                        player.start();
-
-                        // 2. start() 执行完毕后，如果需要更新UI，必须切回主线程
-                        runOnUiThread(() -> {
-                            if (!progressThread.isAlive()) {
-                                progressThread.start();
-                            }
-                            play.setText("暂停");
-                        });
-                    });
-                    break;
-                case Playing:
-                    executor.execute(() -> {
-                        player.pause(true);
-                        runOnUiThread(() -> play.setText("播放"));
-                    });
-                    break;
-                case Paused:
-                    executor.execute(() -> {
-                        player.pause(false);
-                        runOnUiThread(() -> play.setText("暂停"));
-                    });
-                    break;
-                default:
-                    break;
-            }
-        });
-
-        Button stop = findViewById(R.id.button2);
-        stop.setOnClickListener(v -> {
-            executor.execute(() -> {
-                player.stop();
-                runOnUiThread(() -> {
-                    play.setText("播放");
-                    setSeekBar(0);
-                });
-            });
-        });
-
-        Button speed = findViewById(R.id.button3);
-        speed.setText("1x");
-        speed.setOnClickListener(v -> {
-            switch (speed.getText().toString()) {
-                case "2x":
-                    player.setSpeed(3);
-                    speed.setText("3x");
-                    break;
-                case "3x":
-                    player.setSpeed(0.5f);
-                    speed.setText("0.5x");
-                    break;
-                case "0.5x":
-                    player.setSpeed(1);
-                    speed.setText("1x");
-                    break;
-                case "1x":
-                    player.setSpeed(2);
-                    speed.setText("2x");
-                    break;
-            }
-        });
+        playPauseButton.setOnClickListener(v -> handlePlayPauseClick());
+        stopButton.setOnClickListener(v -> playerExecutor.execute(player::stop));
 
         mSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser) player.seek((double) progress / 100);
+                if (fromUser) {
+                    double duration = player.getDuration();
+                    if (duration > 0) {
+                        double position = (progress / 100.0) * duration;
+                        playerExecutor.execute(() -> player.seek(position));
+                    }
+                }
             }
 
             @Override
             public void onStartTrackingTouch(SeekBar seekBar) {
-
             }
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
-
             }
         });
+
+        updateUiForState(Player.PlayerState.None);
     }
 
-    private void setSeekBar(int progress) {
-        Bundle bundle = new Bundle();
-        bundle.putInt("progress", progress);
-        Message msg = new Message();
-        msg.setData(bundle);
-        msg.what = 1;
-        mHandler.sendMessage(msg);
+    private void handlePlayPauseClick() {
+        Player.PlayerState currentState = player.getState();
+        Log.d(TAG, "Play/Pause button clicked. Current state: " + currentState);
+
+        switch (currentState) {
+            case None:
+            case End:
+                playerExecutor.execute(player::start);
+                break;
+            case Playing:
+                playerExecutor.execute(() -> player.pause(true));
+                break;
+            case Paused:
+                playerExecutor.execute(() -> player.pause(false));
+                break;
+        }
+    }
+
+    private void updateUiForState(Player.PlayerState newState) {
+        Log.d(TAG, "Updating UI for state: " + newState);
+        switch (newState) {
+            case None:
+            case End:
+                playPauseButton.setText("播放");
+                playPauseButton.setEnabled(true);
+                stopButton.setEnabled(false);
+                mSeekBar.setProgress(0);
+                stopProgressThread();
+                break;
+            case Playing:
+                playPauseButton.setText("暂停");
+                playPauseButton.setEnabled(true);
+                stopButton.setEnabled(true);
+                startProgressThread();
+                break;
+            case Paused:
+                playPauseButton.setText("播放");
+                playPauseButton.setEnabled(true);
+                stopButton.setEnabled(true);
+                stopProgressThread();
+                break;
+            case Seeking:
+                playPauseButton.setEnabled(false);
+                stopButton.setEnabled(false);
+                break;
+            case Error:
+                playPauseButton.setText("错误");
+                playPauseButton.setEnabled(false);
+                stopButton.setEnabled(false);
+                stopProgressThread();
+                Toast.makeText(this, "播放器发生错误", Toast.LENGTH_SHORT).show();
+                break;
+        }
+    }
+
+    private void startProgressThread() {
+        if (progressThread != null && progressThread.isAlive()) {
+            return; // 已经在运行
+        }
+        isProgressThreadRunning = true;
+        progressThread = new Thread(() -> {
+            while (isProgressThreadRunning) {
+                double duration = player.getDuration();
+                double position = player.getPosition(); // 假设 getPosition 存在
+
+                if (duration > 0) {
+                    int progress = (int) ((position / duration) * 100);
+                    runOnUiThread(() -> mSeekBar.setProgress(progress));
+                }
+
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Log.d(TAG, "Progress thread interrupted.");
+                    break;
+
+                }
+            }
+            Log.d(TAG, "Progress thread finished.");
+        });
+        progressThread.start();
+    }
+
+    private void stopProgressThread() {
+        isProgressThreadRunning = false;
+        if (progressThread != null) {
+            progressThread.interrupt();
+            progressThread = null;
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        Log.d(TAG, "onStop called. Stopping player.");
+        playerExecutor.execute(player::stop);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Log.d(TAG, "onDestroy called. Releasing player and shutting down executor.");
+        player.release();
+        playerExecutor.shutdown();
+        stopProgressThread();
     }
 }

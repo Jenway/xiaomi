@@ -12,17 +12,13 @@ public:
     static std::unique_ptr<GLRenderHost> create();
     ~GLRenderHost();
 
-    // init 现在会启动渲染线程
     bool init(ANativeWindow* window);
-    // release 会停止线程并清理资源
     void release();
 
     void submitFrame(std::shared_ptr<VideoFrame> frame);
 
-    // 清空队列并重置时钟，用于 seek
     void flush();
 
-    // 新增：控制渲染循环的状态
     void pause();
     void resume();
 

@@ -59,12 +59,39 @@ void Demuxer::Resume()
     cv_.notify_one();
 }
 
-bool Demuxer::SeekTo(double timestamp_sec)
+void Demuxer::SeekTo(double time_sec)
 {
-    seek_timestamp_sec_.store(timestamp_sec);
-    seek_requested_.store(true);
-    cv_.notify_one();
-    return true;
+    if (!source_ || !source_->get_format_context()) {
+        return;
+    }
+
+    auto* format_context = source_->get_format_context();
+    int stream_index = source_->get_video_stream_index(); // 通常以视频流为基准 seek
+    if (stream_index < 0) {
+        stream_index = source_->get_audio_stream_index(); // 如果没有视频，用音频
+    }
+    if (stream_index < 0) {
+        LOGE("Demuxer::SeekTo: No valid stream to seek on.");
+        return;
+    }
+
+    auto* stream = format_context->streams[stream_index];
+
+    // 将秒转换为流的内部时间基（time_base）
+    int64_t target_ts = time_sec / av_q2d(stream->time_base);
+
+    LOGI("Demuxer: Seeking stream %d to time %.3f (timestamp %lld)", stream_index, time_sec, target_ts);
+
+    // av_seek_frame 是一个复杂的函数。
+    // AVSEEK_FLAG_BACKWARD 标志意味着它会 seek 到目标时间戳之前的最近的一个关键帧（keyframe）。
+    // 这是最常用、最稳妥的方式。
+    int ret = av_seek_frame(format_context, stream_index, target_ts, AVSEEK_FLAG_BACKWARD);
+
+    if (ret < 0) {
+        LOGE("Demuxer: av_seek_frame failed with error: %s", av_err2str(ret));
+    } else {
+        LOGI("Demuxer: av_seek_frame successful.");
+    }
 }
 
 double Demuxer::GetDuration() const
@@ -74,7 +101,7 @@ double Demuxer::GetDuration() const
     }
 
     AVFormatContext* ctx = source_->get_format_context();
-    if (!ctx || ctx->duration == AV_NOPTS_VALUE) {
+    if ((ctx == nullptr) || ctx->duration == AV_NOPTS_VALUE) {
         return 0.0;
     }
     return static_cast<double>(ctx->duration) / AV_TIME_BASE;
