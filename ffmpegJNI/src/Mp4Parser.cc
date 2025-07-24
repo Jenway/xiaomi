@@ -41,26 +41,31 @@ struct Mp4Parser::Impl {
     // --- Core Components ---
     std::shared_ptr<MediaSource> source;
     std::unique_ptr<Demuxer> demuxer;
-    std::unique_ptr<SemQueue<Packet>> packet_queue;
-    std::unique_ptr<Decoder> decoder;
+
+    // 视频处理管道
+    std::unique_ptr<SemQueue<Packet>> video_packet_queue_;
+    std::unique_ptr<Decoder> video_decoder_;
+
+    // 音频处理管道
+    std::unique_ptr<SemQueue<Packet>> audio_packet_queue_;
+    std::unique_ptr<Decoder> audio_decoder_;
 
     Impl(Config cfg, Callbacks cbs)
         : config(std::move(cfg))
         , callbacks(std::move(cbs))
     {
-        command_queue_ = std::make_unique<SemQueue<Command>>(16); // 命令队列不需要很大
+        command_queue_ = std::make_unique<SemQueue<Command>>(16);
         control_thread_ = std::thread(&Impl::parser_loop, this);
     }
 
     ~Impl()
     {
         if (state != PlayerState::Stopped) {
-            // 发送停止命令并等待控制线程结束
             Command cmd { CommandType::STOP };
             command_queue_->push(cmd);
         }
         parser_loop_should_exit_ = true;
-        command_queue_->shutdown(); // 确保即使在等待命令时也能唤醒控制线程
+        command_queue_->shutdown();
         if (control_thread_.joinable()) {
             control_thread_.join();
         }
@@ -122,27 +127,56 @@ private:
             source = std::make_shared<MediaSource>();
             source->open(config.file_path);
             demuxer = std::make_unique<Demuxer>(source);
-            packet_queue = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
-            auto codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
-            decoder = std::make_unique<Decoder>(codec_context, *packet_queue);
+            // Video
+            video_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
+            auto video_codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
+            video_decoder_ = std::make_unique<Decoder>(video_codec_context, *video_packet_queue_);
+            // Audio
+            if (source->has_audio_stream()) {
+                audio_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_audio_packet_queue_size); // 可能需要新的配置项
+                auto audio_codec_context = std::make_shared<DecoderContext>(source->get_audio_codecpar());
+                audio_decoder_ = std::make_unique<Decoder>(audio_codec_context, *audio_packet_queue_);
+            }
 
             auto on_packet_cb = [this](Packet& packet) -> bool {
                 if (state == PlayerState::Stopped || state == PlayerState::Error)
                     return false;
-                return packet_queue->push(std::move(packet));
+
+                if (packet.streamIndex() == source->get_video_stream_index()) {
+                    return video_packet_queue_->push(std::move(packet));
+                } else if (source->has_audio_stream() && packet.streamIndex() == source->get_audio_stream_index()) {
+                    return audio_packet_queue_->push(std::move(packet));
+                }
+                // 非音视频包，直接丢弃
+                return true;
             };
-            auto on_frame_cb = [this](const AVFrame* frame) {
-                if (state == PlayerState::Stopped || state == PlayerState::Error)
-                    return;
-                if (callbacks.on_frame_decoded) {
-                    callbacks.on_frame_decoded(convert_frame(source->get_video_stream(), frame));
+
+            // --- 5. 修改：为每个Decoder设置独立的回调 ---
+            auto on_video_frame_cb = [this](const AVFrame* frame) {
+                if (callbacks.on_video_frame_decoded) {
+                    // 假设 convert_video_frame 存在
+                    callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
                 }
             };
 
-            decoder->Start(on_frame_cb);
+            video_decoder_->Start(on_video_frame_cb);
+
+            // 新增：启动音频解码器
+            if (audio_decoder_) {
+                auto on_audio_frame_cb = [this](const AVFrame* frame) {
+                    if (callbacks.on_audio_frame_decoded) {
+                        // 假设 convert_audio_frame 存在
+                        callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
+                    }
+                };
+                audio_decoder_->Start(on_audio_frame_cb);
+            }
+
+            // --- 启动解复用 ---
             demuxer->Start(on_packet_cb);
             set_state(PlayerState::Running);
             LOGI("Parser started successfully.");
+
         } catch (const std::exception& e) {
             report_error(e.what());
             cleanup_resources();
@@ -155,15 +189,23 @@ private:
         if (state == PlayerState::Stopped)
             return;
         LOGI("Mp4Parser::stop() called. Requesting shutdown.");
-        set_state(PlayerState::Stopped); // 立即改变状态以阻止回调
+        set_state(PlayerState::Stopped);
 
         // 按照数据流逆序关闭
         if (demuxer)
             demuxer->Stop();
-        if (packet_queue)
-            packet_queue->shutdown();
-        if (decoder)
-            decoder->Stop();
+
+        // 关闭视频管道
+        if (video_packet_queue_)
+            video_packet_queue_->shutdown();
+        if (video_decoder_)
+            video_decoder_->Stop();
+
+        // 新增：关闭音频管道
+        if (audio_packet_queue_)
+            audio_packet_queue_->shutdown();
+        if (audio_decoder_)
+            audio_decoder_->Stop();
 
         cleanup_resources();
         LOGI("Parser stopped successfully.");
@@ -187,17 +229,30 @@ private:
     {
         LOGI("Handling SEEK to %.3f sec...", time_sec);
         demuxer->SeekTo(time_sec);
-        if (packet_queue)
-            packet_queue->clear();
-        if (decoder)
-            decoder->flush();
+
+        // 修改：清空所有队列和解码器
+        if (video_packet_queue_)
+            video_packet_queue_->clear();
+        if (video_decoder_)
+            video_decoder_->flush();
+
+        if (audio_packet_queue_)
+            audio_packet_queue_->clear();
+        if (audio_decoder_)
+            audio_decoder_->flush();
+
         LOGI("Seek command processed.");
     }
 
     void cleanup_resources()
     {
-        decoder.reset();
-        packet_queue.reset();
+        // 修改：清理所有组件
+        video_decoder_.reset();
+        video_packet_queue_.reset();
+
+        audio_decoder_.reset();
+        audio_packet_queue_.reset();
+
         demuxer.reset();
         source.reset();
         LOGI("Core components cleaned up.");

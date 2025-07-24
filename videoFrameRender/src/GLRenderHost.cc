@@ -69,20 +69,6 @@ bool GLRenderHost::init(ANativeWindow* window)
     }
     LOGI("Initializing...");
 
-    // impl_->egl_ = std::make_unique<EGLCore>();
-    // if (!impl_->egl_->init(window)) {
-    //     LOGE("EGLCore initialization failed.");
-    //     return false;
-    // }
-    // auto render_opt = GLESRender::create();
-    // if (!render_opt) {
-    //     LOGE("GLESRender creation failed.");
-    //     return false;
-    // }
-    // impl_->renderer_ = std::move(*render_opt);
-    // auto [width, height] = impl_->egl_->querySurfaceSize();
-    // impl_->renderer_->on_viewport_change(width, height);
-
     impl_->window_ = window;
     impl_->initialized = true;
 

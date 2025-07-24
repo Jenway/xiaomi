@@ -1,47 +1,30 @@
 #pragma once
 
-#include "Entitys.hpp"
-#include "GLRenderHost.hpp"
-#include "Mp4Parser.hpp"
-#include <android/native_window.h>
+#include "Entitys.hpp" // 包含 PlayerState 定义
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <string>
 
-using namespace mp4parser;
-using namespace render_utils;
-using player_utils::VideoFrame;
+struct ANativeWindow;
 
-class NativePlayer {
+class NativePlayer : public std::enable_shared_from_this<NativePlayer> {
 public:
     NativePlayer();
     ~NativePlayer();
 
-    // 禁止拷贝和赋值
+    void play(const std::string& path, ANativeWindow* window);
+    void pause(bool is_paused);
+    void stop();
+    void seek(double time_sec);
+
+    void setOnStateChangedCallback(std::function<void(player_utils::PlayerState)> cb);
+    void setOnErrorCallback(std::function<void(const std::string&)> cb);
+
     NativePlayer(const NativePlayer&) = delete;
     NativePlayer& operator=(const NativePlayer&) = delete;
 
-    // --- Public API ---
-    // 这个方法底层将启动两个线程（Demuxer & Decoder）
-    int play(const std::string& path, ANativeWindow* window);
-    void pause(bool is_paused);
-    void stop();
-
-    void seek(double time_sec);
-
-    double get_duration() { return parser_->get_duration(); }
-
-    // --- Callbacks Setup ---
-    void setOnStateChangedCallback(std::function<void(PlayerState)> cb);
-    void setOnErrorCallback(std::function<void(const std::string&)> cb);
-
 private:
-    std::unique_ptr<Mp4Parser> parser_;
-    std::unique_ptr<GLRenderHost> renderHost_;
-    std::mutex player_mutex_;
-
-    // Callbacks
-    std::function<void(PlayerState)> on_state_changed_cb_;
-    std::function<void(const std::string&)> on_error_cb_;
+    // 指向所有内部实现的指针
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };

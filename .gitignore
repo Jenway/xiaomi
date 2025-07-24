@@ -10,3 +10,5 @@ build_android
 .idea/
 install
 copy.sh
+log.txt
+.gitignore

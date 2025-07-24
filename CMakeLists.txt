@@ -14,8 +14,8 @@ set(INSTALL_INCLUDE_DIR "${CMAKE_INSTALL_PREFIX}/include")
 
 install(FILES
     "${PROJECT_SOURCE_DIR}/common/include/Entitys.hpp"
-    "${PROJECT_SOURCE_DIR}/common/include/GLRenderHost.hpp"
-    "${PROJECT_SOURCE_DIR}/common/include/Mp4Parser.hpp"
+    # "${PROJECT_SOURCE_DIR}/common/include/GLRenderHost.hpp"
+    # "${PROJECT_SOURCE_DIR}/common/include/Mp4Parser.hpp"
     "${PROJECT_SOURCE_DIR}/common/include/NativePlayer.hpp"
     DESTINATION "${INSTALL_INCLUDE_DIR}"
 )
@@ -29,6 +29,7 @@ target_include_directories(common_includes INTERFACE
 
 add_subdirectory(ffmpegJNI)
 add_subdirectory(videoFrameRender)
+add_subdirectory(audioRender)
 
 add_library(ffmpeg-jw SHARED common/src/NativePlayer.cc)
 
@@ -42,6 +43,7 @@ target_link_libraries(ffmpeg-jw
     "-Wl,--whole-archive"
     mp4parser
     video_frame_render
+    audioRender
     "-Wl,--no-whole-archive"
 )
 

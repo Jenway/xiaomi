@@ -14,7 +14,21 @@ struct VideoFrame {
     double pts;
 };
 
+struct AudioFrame {
+    uint8_t* data[8] = { nullptr };
+    int linesize[8] = { 0 };
+
+    int nb_samples = 0;
+    int channels = 2;
+    int sample_rate = 44100;
+
+    double pts = 0.0;
+    double duration = 0.0;
+};
+
 enum class PlayerState {
+    None,
+    End,
     Idle, // 初始状态，尚未 start
     Preparing, // 正在初始化资源
     Ready, // 资源准备完成
@@ -29,6 +43,10 @@ enum class PlayerState {
 inline const char* state_to_string(PlayerState state)
 {
     switch (state) {
+    case PlayerState::End:
+        return "End";
+    case PlayerState::None:
+        return "None";
     case PlayerState::Idle:
         return "Idle";
     case PlayerState::Preparing:

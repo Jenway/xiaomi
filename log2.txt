@@ -1,0 +1,62 @@
+问题一：Seek 崩溃
+诊断 (Diagnosis):
+您在 handle_seek 中遇到的崩溃，其根本原因和我们之前解决的 pause 死锁问题根源相同：线程安全。
+让我们回顾一下 handle_seek 的逻辑：
+Generated cpp
+void handle_seek(double time_sec) {
+    // ...
+    demuxer->SeekTo(time_sec);       // 由 Demuxer 线程执行
+    if (packet_queue) packet_queue->clear(); // 由 控制线程 执行
+    if (decoder) decoder->flush();         // 由 控制线程 执行
+    // ...
+}
+Use code with caution.
+C++
+这里存在一个致命的竞争条件（Race Condition）：
+控制线程调用 decoder->flush()，这个函数会直接调用 avcodec_flush_buffers(ctx_)。
+与此同时，解码线程可能正在执行它的 run() 循环，比如它可能正卡在 avcodec_send_packet() 或 avcodec_receive_frame()，这两个函数都在使用同一个 AVCodecContext (ctx_)。
+在一个线程正在使用 AVCodecContext 的同时，从另一个线程调用 avcodec_flush_buffers() 去清空它，这是绝对不被允许的，会导致内部状态损坏和不可预测的崩溃。这就像是在一个人正在使用工具箱的时候，另一个人突然把工具箱里的所有工具都抽走并重置。
+解决方案 (Solution):
+我们必须遵循一个原则：对一个组件的内部操作（如 flush）只能由该组件自己的工作线程来执行。
+幸运的是，我们的架构已经为此做好了准备！
+Demuxer::SeekTo 在执行 av_seek_frame 后，会向 packet_queue 推入一个特殊的 FlushPacket。
+Decoder::run 循环已经设计好可以识别这个 FlushPacket，并在自己的线程中安全地调用 flush() (即 avcodec_flush_buffers())。
+所以，handle_seek 绝对不能直接调用 decoder->flush()。它只需要清空队列，剩下的工作交给组件间的消息传递机制来完成。
+修正后的 handle_seek:
+Generated cpp
+void handle_seek(double time_sec) {
+    if (state != PlayerState::Running && state != PlayerState::Paused) {
+        return;
+    }
+    LOGI("Handling SEEK to %.3f sec...", time_sec);
+
+    // 如果是暂停状态，先恢复，确保数据流是通畅的
+    bool was_paused = (state == PlayerState::Paused);
+    if (was_paused) {
+        // 调用 resume 的内部逻辑，但不发通知
+        set_state_internal(PlayerState::Running);
+        demuxer->Resume();
+        pause_cv_.notify_one();
+    }
+    
+    // 1. 让 Demuxer 执行 seek。它会发送一个 flush packet。
+    demuxer->SeekTo(time_sec);
+
+    // 2. 清空队列，丢弃在 seek 命令发出和 Demuxer 实际 seek 之间的所有旧数据包。
+    if (packet_queue) {
+        packet_queue->clear();
+    }
+    
+    // 3. [已移除] 绝对不要在这里调用 decoder->flush()！
+    //    解码器会在自己的线程中收到 flush packet 并安全地 flush 自己。
+
+    // 如果之前是暂停状态，seek 完成后，再把它暂停回去
+    if (was_paused) {
+        // 调用 pause 的内部逻辑，但不发通知
+        set_state_internal(PlayerState::Paused);
+        demuxer->Pause();
+    }
+
+    LOGI("Seek command processed.");
+}
+
