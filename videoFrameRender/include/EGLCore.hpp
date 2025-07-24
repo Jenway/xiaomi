@@ -34,11 +34,12 @@ private:
     EGLSurface surface_ = EGL_NO_SURFACE;
     EGLContext context_ = EGL_NO_CONTEXT;
     EGLConfig config_ {};
+    ANativeWindow* window_ = nullptr;
 
     bool initDisplay();
     bool chooseConfig();
     bool createContext();
-    bool createSurface(ANativeWindow* window);
+    bool createSurface();
 };
 
 } // namespace render_utils

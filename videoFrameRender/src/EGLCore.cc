@@ -1,18 +1,42 @@
 #include "EGLCore.hpp"
-#include "log.hpp"
 #include <EGL/egl.h>
+#include <android/native_window.h>
 #include <cstdint>
+// For logging (Android's standard logging)
+#include <android/log.h>
+
+#define LOG_TAG "EGLCore"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Helper macro for EGL error checking
+#define CHECK_EGL_ERROR(msg)                                                   \
+    do {                                                                       \
+        EGLint err = eglGetError();                                            \
+        if (err != EGL_SUCCESS) {                                              \
+            LOGE("%s: EGL error 0x%x at %s:%d", msg, err, __FILE__, __LINE__); \
+        }                                                                      \
+    } while (0)
 
 namespace render_utils {
 bool EGLCore::init(ANativeWindow* native_window)
 {
+    if (native_window == nullptr) {
+        LOGE("EGLCore::init received null window");
+        return false;
+    }
+    // 保存并获取窗口的所有权
+    window_ = native_window;
+    ANativeWindow_acquire(window_);
+    LOGI("ANativeWindow acquired.");
     if (!initDisplay())
         return false;
     if (!chooseConfig())
         return false;
     if (!createContext())
         return false;
-    if (!createSurface(native_window))
+    if (!createSurface())
         return false;
     // makeCurrent 后，OpenGL 的命令就可以同步到 EGL Surface 上了
     if (!makeCurrent())
@@ -66,9 +90,9 @@ bool EGLCore::createContext()
     return true;
 }
 
-bool EGLCore::createSurface(ANativeWindow* window)
+bool EGLCore::createSurface()
 {
-    if (window == nullptr) {
+    if (window_ == nullptr) {
         LOGE("EGLCore::createSurface received null window");
         return false;
     }
@@ -130,6 +154,11 @@ void EGLCore::release()
             eglDestroySurface(display_, surface_);
             surface_ = EGL_NO_SURFACE;
             LOGI("EGL surface destroyed.");
+        }
+        if (window_ != nullptr) {
+            ANativeWindow_release(window_);
+            window_ = nullptr;
+            LOGI("ANativeWindow released.");
         }
         eglTerminate(display_);
         display_ = EGL_NO_DISPLAY;

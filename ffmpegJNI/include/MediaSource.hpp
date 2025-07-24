@@ -42,6 +42,7 @@ public:
     }
 
     bool has_audio_stream() const { return audio_stream_index_ != -1; };
+    bool has_video_stream() const { return video_stream_index_ != -1; };
 
 private:
     AVFormatContext* fmt_ctx_ = nullptr;
