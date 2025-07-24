@@ -18,6 +18,9 @@ import android.widget.SeekBar;
 
 import com.example.androidplayer.databinding.ActivityMainBinding;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class MainActivity extends AppCompatActivity {
     // Used to load the 'androidplayer' library on application startup.
     static {
@@ -27,6 +30,7 @@ public class MainActivity extends AppCompatActivity {
     private Player player;
     private Handler mHandler;
     private SeekBar mSeekBar;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
         };
 
         player = new Player();
-        player.setDataSource("file://sdcard/test12.mp4");
+        player.setDataSource("file:/sdcard/test12.mp4");
 
         ((SurfaceView) findViewById(R.id.surfaceView)).getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
@@ -90,18 +94,30 @@ public class MainActivity extends AppCompatActivity {
             switch (player.getState()) {
                 case None:
                 case End:
-                    player.start();
-                    if (!progressThread.isAlive())
-                        progressThread.start();
-                    play.setText("暂停");
+                    // 1. 在后台线程执行耗时的 player.start()
+                    executor.execute(() -> {
+                        player.start();
+
+                        // 2. start() 执行完毕后，如果需要更新UI，必须切回主线程
+                        runOnUiThread(() -> {
+                            if (!progressThread.isAlive()) {
+                                progressThread.start();
+                            }
+                            play.setText("暂停");
+                        });
+                    });
                     break;
                 case Playing:
-                    player.pause(true);
-                    play.setText("播放");
+                    executor.execute(() -> {
+                        player.pause(true);
+                        runOnUiThread(() -> play.setText("播放"));
+                    });
                     break;
                 case Paused:
-                    player.pause(false);
-                    play.setText("暂停");
+                    executor.execute(() -> {
+                        player.pause(false);
+                        runOnUiThread(() -> play.setText("暂停"));
+                    });
                     break;
                 default:
                     break;
@@ -110,9 +126,13 @@ public class MainActivity extends AppCompatActivity {
 
         Button stop = findViewById(R.id.button2);
         stop.setOnClickListener(v -> {
-            player.stop();
-            play.setText("播放");
-            setSeekBar(0);
+            executor.execute(() -> {
+                player.stop();
+                runOnUiThread(() -> {
+                    play.setText("播放");
+                    setSeekBar(0);
+                });
+            });
         });
 
         Button speed = findViewById(R.id.button3);
@@ -141,8 +161,7 @@ public class MainActivity extends AppCompatActivity {
         mSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser)
-                    player.seek((double) progress / 100);
+                if (fromUser) player.seek((double) progress / 100);
             }
 
             @Override

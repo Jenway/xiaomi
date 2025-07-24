@@ -1,52 +1,59 @@
 #pragma once
+#include "Entitys.hpp"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 
-struct AVFrame; // FFmpeg 结构体前向声明
+struct AVFrame;
 
 namespace mp4parser {
+using player_utils::VideoFrame;
 
-    enum class PlayerState {
-        Stopped,
-        Running,
-        Paused,
-        Finished,
-        Error,
-    };
+enum class PlayerState : uint8_t {
+    Stopped,
+    Running,
+    Paused,
+    Finished,
+    Error,
+};
 
-    struct Config {
-        std::string file_path;
-        int max_packet_queue_size = 300;
-    };
+struct Config {
+    std::string file_path;
+    int max_packet_queue_size = 300;
+};
 
-// 用户设置的回调
-    struct Callbacks {
-        std::function<void(const AVFrame* frame)> on_frame_decoded;
-        std::function<void(PlayerState state)> on_state_changed;
-        std::function<void(const std::string& msg)> on_error;
-    };
+struct Callbacks {
+    std::function<void(std::shared_ptr<VideoFrame>)> on_frame_decoded;
+    std::function<void(PlayerState& state)> on_state_changed;
+    std::function<void(const std::string& msg)> on_error;
+    std::function<void()> on_playback_finished;
+};
 
-    class Mp4Parser {
-    public:
-        static std::unique_ptr<Mp4Parser> create(const Config& config, const Callbacks& callbacks);
+class Mp4Parser {
+public:
+    static std::unique_ptr<Mp4Parser> create(const Config& config, const Callbacks& callbacks);
+    void start(); // 启动解码流程（开启两个线程）
+    void pause(); // 请求暂停（阻塞 decoder 线程）
+    void resume(); // 恢复运行
+    void stop(); // 停止线程，释放资源
+    void seek(double time_sec);
 
-        void start(); // 启动解码流程（开启两个线程）
-        void pause(); // 请求暂停（阻塞 decoder 线程）
-        void resume(); // 恢复运行
-        void stop(); // 停止线程，释放资源
-        PlayerState get_state() const;
+    double get_duration();
 
-        ~Mp4Parser();
+    [[nodiscard]] PlayerState get_state() const;
 
-    private:
-        Mp4Parser() = default; // 使用 create 工厂构造
-        struct Impl;
-        std::unique_ptr<Impl> impl_;
-    };
+    ~Mp4Parser();
 
-    void log_info(const std::string& msg);
-    std::string describe_frame_info(const AVFrame* frame);
+private:
+    Mp4Parser() = default;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+void log_info(const std::string& msg);
+std::string describe_frame_info(const AVFrame* frame);
+const char* state_to_string(PlayerState state);
 
 } // namespace mp4parser

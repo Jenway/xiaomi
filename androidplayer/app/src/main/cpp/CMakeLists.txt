@@ -39,12 +39,7 @@ add_library(ffmpeg SHARED IMPORTED)
 set_target_properties(ffmpeg PROPERTIES IMPORTED_LOCATION ${ffmpeg_lib_dir}/libffmpeg-jw.so)
 
 
-add_library(${CMAKE_PROJECT_NAME} SHARED
-        # List C/C++ source files with relative paths to this CMakeLists.txt.
-        AAudioRender.cpp
-        ANWRender.cpp
-        AndroidPlayer.cpp
-)
+add_library(${CMAKE_PROJECT_NAME} SHARED PlayerJNI.cpp )
 
 
 # Specifies libraries CMake should link to your target library. You
