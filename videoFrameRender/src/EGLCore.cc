@@ -94,7 +94,12 @@ bool EGLCore::makeCurrent()
 
     return true;
 }
-
+void EGLCore::doneCurrent()
+{
+    if (display_ != EGL_NO_DISPLAY) {
+        eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    }
+}
 void EGLCore::swapBuffers()
 {
     if (display_ == EGL_NO_DISPLAY || surface_ == EGL_NO_SURFACE) {

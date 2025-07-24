@@ -154,7 +154,7 @@ private:
     {
         if (state == PlayerState::Stopped)
             return;
-        LOGI("Handling STOP command...");
+        LOGI("Mp4Parser::stop() called. Requesting shutdown.");
         set_state(PlayerState::Stopped); // 立即改变状态以阻止回调
 
         // 按照数据流逆序关闭
@@ -275,7 +275,9 @@ double Mp4Parser::get_duration()
     if (impl_) {
         return impl_->demuxer->GetDuration();
     }
+    return -1.0;
 }
+
 PlayerState Mp4Parser::get_state() const
 {
     return impl_ ? impl_->state.load() : PlayerState::Stopped;

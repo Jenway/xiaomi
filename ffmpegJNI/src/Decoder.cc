@@ -8,6 +8,12 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/error.h>
 }
+#include <android/log.h>
+
+#define LOG_TAG "Mp4Parser Decoder"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 using ffmpeg_utils::Packet;
 using player_utils::SemQueue;
@@ -60,6 +66,8 @@ void Decoder::Stop()
 
 void Decoder::run()
 {
+    LOGI(">>> Decode thread [ID: %d] entered.", std::this_thread::get_id());
+
     Packet packet;
 
     while (queue_.wait_and_pop(packet)) {
@@ -84,7 +92,9 @@ void Decoder::run()
         receive_and_process_frames();
     }
 
-    std::cout << "Decoder: End of packet stream. Flushing decoder for EOF..." << '\n';
+    LOGI("Decoder: End of packet stream. Flushing decoder for EOF...");
+    LOGI("<<< Decode thread [ID: %d] is exiting.", std::this_thread::get_id());
+
     flush_eof();
 }
 

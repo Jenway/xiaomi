@@ -69,7 +69,36 @@ public:
         empty_slots_.release(); // 释放一个空槽位
         return true;
     }
+    template <typename Rep, typename Period>
+    bool wait_and_pop(T& out_element, const std::chrono::duration<Rep, Period>& timeout)
+    {
+        if (shutdown_ && queue_is_empty_unsafe()) {
+            return false;
+        }
 
+        // 1. 带超时地等待一个 "已填充" 信号量
+        //    假设你的 Semaphore 提供了 try_acquire_for
+        if (!filled_slots_.try_acquire_for(timeout)) {
+            // 如果等待超时，直接返回 false
+            return false;
+        }
+
+        // 2. 成功获取信号量，现在可以安全地访问队列
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            // 再次检查 shutdown 条件，防止在等待期间被关闭
+            if (shutdown_ && queue_.empty()) {
+                filled_slots_.release(); // 归还信号量，让其他线程也能退出
+                return false;
+            }
+            out_element = std::move(queue_.front());
+            queue_.pop();
+        }
+
+        // 3. 释放一个 "空槽位" 信号量
+        empty_slots_.release();
+        return true;
+    }
     // --- 新增方法 ---
 
     /**

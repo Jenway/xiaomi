@@ -26,7 +26,7 @@ public:
     void swapBuffers();
     void release();
     bool makeCurrent();
-
+    void doneCurrent();
     std::pair<int32_t, int32_t> querySurfaceSize();
 
 private:

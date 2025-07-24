@@ -37,10 +37,6 @@ public:
     void setOnErrorCallback(std::function<void(const std::string&)> cb);
 
 private:
-    void cleanup();
-    // 这个方法将会被渲染线程调用
-    void onDrawFrame();
-
     std::unique_ptr<Mp4Parser> parser_;
     std::unique_ptr<GLRenderHost> renderHost_;
     std::mutex player_mutex_;

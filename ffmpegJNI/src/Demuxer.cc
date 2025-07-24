@@ -8,6 +8,12 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/rational.h>
 }
+#include <android/log.h>
+
+#define LOG_TAG "Mp4Parser Demuxer"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 Demuxer::Demuxer(std::shared_ptr<MediaSource> source)
     : source_(std::move(source))
@@ -76,7 +82,7 @@ double Demuxer::GetDuration() const
 
 void Demuxer::run()
 {
-    std::cout << "[Demuxer Thread] Starting." << std::endl;
+    LOGI(">>> Demux thread [ID: %d] entered.", std::this_thread::get_id());
 
     AVFormatContext* ctx = source_->get_format_context();
     if (!ctx) {
@@ -149,5 +155,5 @@ void Demuxer::run()
             }
         }
     }
-    std::cout << "[Demuxer Thread] Stopped." << std::endl;
+    LOGI("<<< Demux thread [ID: %d] is exiting.", std::this_thread::get_id());
 }
