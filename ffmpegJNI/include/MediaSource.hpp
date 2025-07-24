@@ -37,7 +37,6 @@ public:
                 };
             }
         }
-        // If acquisition fails, return a clear invalid value
         return { -1, -1 };
     }
 

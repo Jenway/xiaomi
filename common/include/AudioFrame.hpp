@@ -14,4 +14,4 @@ struct AudioFrame {
     ~AudioFrame();
 };
 
-}
+} // namespace player_utils

@@ -1,8 +1,6 @@
 #pragma once
 
-#include "EGLCore.hpp"
-#include "Mp4Parser.hpp"
-#include "RingBuffer.hpp"
+#include "Entitys.hpp"
 #include "SemQueue.hpp"
 #include <GLES3/gl3.h>
 #include <cstddef>
@@ -10,8 +8,8 @@
 #include <optional>
 
 namespace render_utils {
-using mp4parser::VideoFrame;
 using player_utils::SemQueue;
+using player_utils::VideoFrame;
 
 class GLESRender {
 public:

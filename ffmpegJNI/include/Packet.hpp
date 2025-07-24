@@ -39,7 +39,6 @@ public:
         return pkt;
     }
 
-    // 添加查询方法
     bool isFlush() const { return is_flush_packet_; }
     bool isEof() const { return is_eof_packet_; }
     bool isData() const { return pkt_ != nullptr && !is_flush_packet_ && !is_eof_packet_; }

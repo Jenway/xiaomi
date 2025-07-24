@@ -215,7 +215,7 @@ void NativePlayer::Impl::fsm_loop()
 {
     LOGI("FSM thread started.");
     while (!shutdown_requested_) {
-        // --- 1. 等待事件 ---
+        // --- 等待事件 ---
         std::unique_lock lock(queue_mutex_);
         if (state_.load() == PlayerState::Playing) {
             // 播放时，以10ms为超时进行等待。超时后可以执行一轮同步逻辑。
@@ -225,20 +225,18 @@ void NativePlayer::Impl::fsm_loop()
             queue_cond_.wait(lock, [this] { return !command_queue_.empty(); });
         }
 
-        // --- 2. 优先处理命令队列 ---
         while (!command_queue_.empty()) {
             Command cmd = std::move(command_queue_.front());
             command_queue_.pop();
-            lock.unlock(); // 处理命令时解锁
+            lock.unlock();
 
             if (std::holds_alternative<CommandShutdown>(cmd)) {
                 LOGI("FSM received SHUTDOWN command. Exiting loop.");
                 cleanup_resources();
-                shutdown_requested_ = true; // 确保外层循环退出
-                break; // 退出命令处理循环
+                shutdown_requested_ = true;
+                break;
             }
 
-            // 根据状态处理命令 (省略了 Playing 状态，因为它由同步循环处理)
             switch (state_.load()) {
             case PlayerState::None:
             case PlayerState::End:
@@ -266,7 +264,7 @@ void NativePlayer::Impl::fsm_loop()
         if (shutdown_requested_)
             break;
 
-        // --- 3. 如果处于播放状态，则执行音视频同步 ---
+        // --- 如果处于播放状态，则执行音视频同步 ---
         if (state_.load() == PlayerState::Playing) {
             lock.unlock();
             run_sync_cycle();
@@ -283,7 +281,6 @@ void NativePlayer::Impl::set_state(PlayerState new_state)
     state_ = new_state;
     LOGI("State changed to: %d", static_cast<int>(new_state));
 
-    // 通过 JNI 回调通知 Java 层
     if (!jvm_ || !jni_player_object_)
         return;
 
@@ -338,13 +335,10 @@ int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData
     while (bytesCopied < bytesNeeded) {
         if (impl->audio_buffer_ptr_ == nullptr || impl->audio_buffer_size_ == 0) {
 
-            // 尝试从队列中取出一帧
             if (impl->audio_frame_queue_->try_pop(impl->current_audio_frame_)) {
-                // 如果成功取出，立即诊断它！
                 if (impl->current_audio_frame_) {
 
                     double frame_pts = impl->current_audio_frame_->pts;
-                    // 打印我们拿到的真实 PTS 值
                     LOGI("AUDIO_CB: Popped new audio frame with PTS = %.3f", frame_pts);
 
                     if (frame_pts >= 0) {
@@ -357,17 +351,14 @@ int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData
                     LOGE("AUDIO_CB: try_pop succeeded but returned a null frame pointer!");
                 }
 
-                // 设置数据指针以供消费
                 impl->audio_buffer_ptr_ = impl->current_audio_frame_->interleaved_pcm;
                 impl->audio_buffer_size_ = impl->current_audio_frame_->interleaved_size;
 
             } else {
-                // 如果队列为空，则跳出循环
                 break;
             }
         }
 
-        // --- 拷贝数据的逻辑保持不变 ---
         int bytesToCopy = std::min(bytesNeeded - bytesCopied, impl->audio_buffer_size_);
         memcpy(static_cast<uint8_t*>(audioData) + bytesCopied, impl->audio_buffer_ptr_, bytesToCopy);
         bytesCopied += bytesToCopy;
@@ -455,13 +446,9 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
         return;
     }
 
-    // Audio render
     auto audio_params = parser_->getAudioParams();
-    // 检查参数是否有效
     if (audio_params.sample_rate <= 0 || audio_params.channel_count <= 0) {
         LOGE("Failed to get valid audio parameters from parser. Aborting audio setup.");
-        // 在这里，我们可以选择让播放继续（静音播放），或者直接报错停止
-        // 为了安全，我们先报错停止
         cleanup_resources();
         state_ = PlayerState::End;
         return;
@@ -473,10 +460,8 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
     audio_render_->setCallback(Impl::audio_data_callback, this);
     audio_render_->start();
 
-    // 6. 启动解析器
     parser_->start();
 
-    // 7. 切换到播放状态
     set_state(PlayerState::Playing);
 
     LOGI("FSM: Switched to PLAYING state.");
@@ -575,8 +560,7 @@ double NativePlayer::getPosition() const
 void NativePlayer::Impl::run_sync_cycle()
 {
     if (!video_frame_queue_ || video_frame_queue_->empty()) {
-        // 这是正常情况，尤其是在播放开始或 seek 之后，表示在等待解码器缓冲
-        // LOGD("SYNC: Video queue is empty, waiting for buffer."); // 可以用 LOGD 减少日志量
+        // LOGD("SYNC: Video queue is empty, waiting for buffer.");
         return;
     }
 
@@ -587,11 +571,9 @@ void NativePlayer::Impl::run_sync_cycle()
         return;
     }
 
-    // 使用 const 引用避免不必要的拷贝
     const std::shared_ptr<VideoFrame>& video_frame = *video_frame_opt;
     if (!video_frame) {
         LOGE("SYNC: Popped a null video frame pointer!");
-        // 从队列中移除这个坏数据
         std::shared_ptr<VideoFrame> dummy;
         video_frame_queue_->try_pop(dummy);
         return;
@@ -604,13 +586,10 @@ void NativePlayer::Impl::run_sync_cycle()
     // 视频帧的显示时间还未到
     if (diff > 0.01) {
         LOGI("SYNC: Video is early. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f. Waiting...", video_pts, master_clock, diff);
-        // 这里什么都不做，FSM循环的10ms超时会自动产生等待效果。
         return;
     }
 
     // --- 决定处理这一帧了 ---
-
-    // 从队列中正式弹出这一帧。
     std::shared_ptr<VideoFrame> frame_to_process;
     if (!video_frame_queue_->try_pop(frame_to_process)) {
         LOGW("SYNC: front() had a frame, but try_pop() failed. Race condition?");
@@ -620,13 +599,12 @@ void NativePlayer::Impl::run_sync_cycle()
     // 视频太晚了 (例如超过100ms)，直接丢弃
     if (diff < -0.1) {
         LOGW("SYNC: Video is too late. Dropping frame. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f", video_pts, master_clock, diff);
-        return; // 帧被弹出并丢弃
+        return;
     }
 
     // 时间刚刚好或略晚，渲染它
     LOGI("SYNC: Submitting frame to renderer. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f", video_pts, master_clock, diff);
     if (renderHost_) {
-        // [BUG 已修复] 提交刚刚弹出的 frame_to_process，而不是可能已失效的 video_frame 引用
         renderHost_->submitFrame(std::move(frame_to_process));
     }
 }

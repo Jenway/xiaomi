@@ -20,8 +20,6 @@ public:
     void submitFrame(std::shared_ptr<VideoFrame> frame);
     void flush();
 
-    // 新增：控制渲染循环的状态
-
 private:
     GLRenderHost();
 

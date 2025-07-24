@@ -101,7 +101,6 @@ void GLESRender::release_gl()
         vbo_ = 0;
     }
     if (vao_ != 0U) {
-        // GLES2没有VAO可以跳过
         vao_ = 0;
     }
     if (shader_program_ != 0U) {
@@ -204,7 +203,7 @@ void GLESRender::on_viewport_change(int width, int height)
 {
     viewport_width_ = width;
     viewport_height_ = height;
-    glViewport(0, 0, width, height); // 通常也在这里设置视口
+    glViewport(0, 0, width, height);
 }
 
 // ======================== Utils ===========================

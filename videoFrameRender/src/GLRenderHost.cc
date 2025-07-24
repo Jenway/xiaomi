@@ -187,7 +187,6 @@ void GLRenderHost::Impl::renderLoop()
     }
 }
 
-// --- 【关键修改】performDraw 被极大简化 ---
 void GLRenderHost::Impl::performDraw()
 {
     std::shared_ptr<VideoFrame> frame_to_render;

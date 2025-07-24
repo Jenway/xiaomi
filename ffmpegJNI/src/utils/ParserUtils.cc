@@ -1,18 +1,5 @@
-#include "BinarySemaphore.hpp"
-#include "Decoder.hpp"
-#include "DecoderContext.hpp"
-#include "Demuxer.hpp"
-#include "MediaSource.hpp"
 #include "Mp4Parser.hpp"
-#include "SemQueue.hpp"
-
 #include <android/log.h>
-#include <atomic>
-#include <cstdint>
-#include <memory>
-#include <mutex>
-#include <thread>
-#include <utility>
 
 // FFmpeg headers
 extern "C" {
@@ -26,9 +13,6 @@ extern "C" {
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-
-using ffmpeg_utils::Packet;
-using player_utils::SemQueue;
 
 namespace mp4parser {
 
