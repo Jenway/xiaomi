@@ -33,7 +33,7 @@ struct Mp4Parser::Impl {
     Config config;
     Callbacks callbacks;
 
-    std::atomic<PlayerState> state { PlayerState::Stopped };
+    std::atomic<PlayerState> state_ { PlayerState::Stopped };
     std::thread control_thread_;
     std::unique_ptr<SemQueue<Command>> command_queue_;
     std::atomic<bool> parser_loop_should_exit_ { false };
@@ -60,7 +60,7 @@ struct Mp4Parser::Impl {
 
     ~Impl()
     {
-        if (state != PlayerState::Stopped) {
+        if (state_ != PlayerState::Stopped) {
             Command cmd { CommandType::STOP };
             command_queue_->push(cmd);
         }
@@ -96,21 +96,21 @@ struct Mp4Parser::Impl {
                 handle_stop();
                 break;
             case CommandType::PAUSE:
-                if (state == PlayerState::Running)
+                if (state_ == PlayerState::Running)
                     handle_pause();
                 break;
             case CommandType::RESUME:
-                if (state == PlayerState::Paused)
+                if (state_ == PlayerState::Paused)
                     handle_resume();
                 break;
             case CommandType::SEEK:
-                if (state == PlayerState::Running || state == PlayerState::Paused) {
+                if (state_ == PlayerState::Running || state_ == PlayerState::Paused) {
                     handle_seek(cmd.time_sec);
                 }
                 break;
             }
         }
-        if (state != PlayerState::Stopped) {
+        if (state_ != PlayerState::Stopped) {
             handle_stop();
         }
         LOGI("Control thread finished.");
@@ -118,75 +118,94 @@ struct Mp4Parser::Impl {
 
 private:
     // --- 命令处理器 (在控制线程中安全执行) ---
+    // 在 Mp4Parser::Impl::handle_start 中
     void handle_start()
     {
-        if (state != PlayerState::Stopped)
+        if (state_ != PlayerState::Stopped)
             return;
         LOGI("Handling START command...");
+
+        // 这一部分不变
+        source = std::make_shared<MediaSource>();
         try {
-            source = std::make_shared<MediaSource>();
             source->open(config.file_path);
-            demuxer = std::make_unique<Demuxer>(source);
-            // Video
+        } catch (const std::exception& e) {
+            LOGI("Failed to open : %s", config.file_path.c_str());
+            report_error(e.what());
+            return;
+        }
+        // 启动解复用
+        auto on_packet_cb = [this](Packet& packet) -> bool {
+            if (state_.load() == PlayerState::Stopped || state_.load() == PlayerState::Error) {
+                return false; // 指示Demuxer停止
+            }
+
+            // 路由：根据流索引将包放入正确的队列
+            if (video_decoder_ && packet.streamIndex() == source->get_video_stream_index()) {
+                return video_packet_queue_->push(std::move(packet));
+            } else if (audio_decoder_ && packet.streamIndex() == source->get_audio_stream_index()) {
+                return audio_packet_queue_->push(std::move(packet));
+            }
+
+            return true; // 丢弃其他包，但继续解复用
+        };
+        demuxer = std::make_unique<Demuxer>(source);
+
+        // --- 独立初始化视频管道 ---
+        try {
             video_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
             auto video_codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
             video_decoder_ = std::make_unique<Decoder>(video_codec_context, *video_packet_queue_);
-            // Audio
-            if (source->has_audio_stream()) {
-                audio_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_audio_packet_queue_size); // 可能需要新的配置项
-                auto audio_codec_context = std::make_shared<DecoderContext>(source->get_audio_codecpar());
-                audio_decoder_ = std::make_unique<Decoder>(audio_codec_context, *audio_packet_queue_);
-            }
-
-            auto on_packet_cb = [this](Packet& packet) -> bool {
-                if (state == PlayerState::Stopped || state == PlayerState::Error)
-                    return false;
-
-                if (packet.streamIndex() == source->get_video_stream_index()) {
-                    return video_packet_queue_->push(std::move(packet));
-                } else if (source->has_audio_stream() && packet.streamIndex() == source->get_audio_stream_index()) {
-                    return audio_packet_queue_->push(std::move(packet));
-                }
-                // 非音视频包，直接丢弃
-                return true;
-            };
-
-            // --- 5. 修改：为每个Decoder设置独立的回调 ---
             auto on_video_frame_cb = [this](const AVFrame* frame) {
                 if (callbacks.on_video_frame_decoded) {
-                    // 假设 convert_video_frame 存在
                     callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
                 }
             };
-
             video_decoder_->Start(on_video_frame_cb);
-
-            // 新增：启动音频解码器
-            if (audio_decoder_) {
-                auto on_audio_frame_cb = [this](const AVFrame* frame) {
-                    if (callbacks.on_audio_frame_decoded) {
-                        // 假设 convert_audio_frame 存在
-                        callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
-                    }
-                };
-                audio_decoder_->Start(on_audio_frame_cb);
-            }
-
-            // --- 启动解复用 ---
-            demuxer->Start(on_packet_cb);
-            set_state(PlayerState::Running);
-            LOGI("Parser started successfully.");
-
+            LOGI("Video pipeline initialized successfully.");
         } catch (const std::exception& e) {
-            report_error(e.what());
-            cleanup_resources();
-            set_state(PlayerState::Error);
+            LOGE("Failed to initialize video pipeline: %s. Continuing with audio only.", e.what());
+            video_decoder_.reset(); // 清理失败的组件
+            video_packet_queue_.reset();
         }
+
+        // --- 独立初始化音频管道 ---
+        if (source->has_audio_stream()) {
+            try {
+                audio_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_audio_packet_queue_size);
+                if (audio_decoder_) {
+                    auto on_audio_frame_cb = [this](const AVFrame* frame) {
+                        if (callbacks.on_audio_frame_decoded) {
+                            // 假设 convert_audio_frame 存在
+                            callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
+                        }
+                    };
+                    audio_decoder_->Start(on_audio_frame_cb);
+                }
+                LOGI("Audio pipeline initialized successfully.");
+            } catch (const std::exception& e) {
+                LOGE("Failed to initialize audio pipeline: %s. Continuing with video only.", e.what());
+                audio_decoder_.reset();
+                audio_packet_queue_.reset();
+            }
+        }
+
+        // 如果音视频都失败了，才算真正失败
+        if (!video_decoder_ && !audio_decoder_) {
+            report_error("Both video and audio pipelines failed to initialize.");
+            cleanup_resources();
+            return;
+        }
+
+        // 启动解复用
+        demuxer->Start(on_packet_cb);
+        set_state(PlayerState::Running);
+        LOGI("Parser started.");
     }
 
     void handle_stop()
     {
-        if (state == PlayerState::Stopped)
+        if (state_ == PlayerState::Stopped)
             return;
         LOGI("Mp4Parser::stop() called. Requesting shutdown.");
         set_state(PlayerState::Stopped);
@@ -260,10 +279,10 @@ private:
 
     void set_state(PlayerState s)
     {
-        if (state == s)
+        if (state_ == s)
             return;
-        LOGI("State changed from %s to: %s", state_to_string(state), state_to_string(s));
-        state = s;
+        LOGI("State changed from %s to: %s", state_to_string(state_), state_to_string(s));
+        state_ = s;
         if (callbacks.on_state_changed) {
             callbacks.on_state_changed(s);
         }
@@ -272,7 +291,7 @@ private:
     void report_error(const std::string& msg)
     {
         LOGE("Error reported: %s", msg.c_str());
-        if (state.load() != PlayerState::Error) {
+        if (state_.load() != PlayerState::Error) {
             set_state(PlayerState::Error);
             if (callbacks.on_error) {
                 callbacks.on_error(msg);
@@ -335,7 +354,7 @@ double Mp4Parser::get_duration()
 
 PlayerState Mp4Parser::get_state() const
 {
-    return impl_ ? impl_->state.load() : PlayerState::Stopped;
+    return impl_ ? impl_->state_.load() : PlayerState::Stopped;
 }
 
 } // namespace mp4parser

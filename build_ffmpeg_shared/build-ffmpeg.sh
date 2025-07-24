@@ -26,6 +26,8 @@ COMMON_CONFIG=(
     # Codecs and Parsers
     --enable-decoder=h264
     --enable-parser=h264
+    --enable-decoder=aac
+    --enable-parser=aac 
     # Libraries
     --enable-avcodec
     --enable-avformat

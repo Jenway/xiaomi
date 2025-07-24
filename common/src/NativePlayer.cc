@@ -222,7 +222,7 @@ void NativePlayer::Impl::fsm_loop()
                 LOGW("Command received in unhandled state: %d", static_cast<int>(state_.load()));
                 break;
             }
-            lock.lock(); // 再次锁定以检查下一个命令
+            lock.lock();
         }
 
         if (shutdown_requested_)
@@ -230,7 +230,7 @@ void NativePlayer::Impl::fsm_loop()
 
         // --- 3. 如果处于播放状态，则执行音视频同步 ---
         if (state_.load() == PlayerState::Playing) {
-            lock.unlock(); // 解锁以执行同步逻辑
+            lock.unlock();
             run_sync_cycle();
         }
     }

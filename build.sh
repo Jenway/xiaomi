@@ -5,7 +5,8 @@ set -e
 export ANDROID_NDK="/home/jenway/xiaomi/Day08/android-ndk-r27d"
 export FFMPEG_BUILD_BASE_DIR="/home/jenway/xiaomi/final/build_ffmpeg_shared/out"
 
-ANDROID_ABIS=("arm64-v8a" "x86_64")
+# ANDROID_ABIS=("arm64-v8a" "x86_64")
+ANDROID_ABIS=("x86_64")
 ANDROID_PLATFORM=android-31
 CMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake"
 
@@ -49,6 +50,6 @@ for ABI in "${ANDROID_ABIS[@]}"; do
 done
 
 # Optional for IDEs.
-ln -sf build_android/arm64-v8a/compile_commands.json compile_commands.json
+ln -sf build_android/x86_64/compile_commands.json compile_commands.json
 
 echo "Build process completed for specified ABIs."
