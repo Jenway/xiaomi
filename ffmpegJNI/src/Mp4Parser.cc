@@ -270,6 +270,12 @@ void Mp4Parser::seek(double time_sec)
         impl_->post_command({ CommandType::SEEK, time_sec });
 }
 
+double Mp4Parser::get_duration()
+{
+    if (impl_) {
+        return impl_->demuxer->GetDuration();
+    }
+}
 PlayerState Mp4Parser::get_state() const
 {
     return impl_ ? impl_->state.load() : PlayerState::Stopped;

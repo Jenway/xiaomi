@@ -39,6 +39,8 @@ public:
     void stop(); // 停止线程，释放资源
     void seek(double time_sec);
 
+    double get_duration();
+
     [[nodiscard]] PlayerState get_state() const;
 
     ~Mp4Parser();

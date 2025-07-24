@@ -27,10 +27,10 @@ public:
     int play(const std::string& path, ANativeWindow* window);
     void pause(bool is_paused);
     void stop();
-    // 这个方法将会被渲染线程调用
-    void onDrawFrame();
 
     void seek(double time_sec);
+
+    double get_duration() { return parser_->get_duration(); }
 
     // --- Callbacks Setup ---
     void setOnStateChangedCallback(std::function<void(PlayerState)> cb);
@@ -38,6 +38,8 @@ public:
 
 private:
     void cleanup();
+    // 这个方法将会被渲染线程调用
+    void onDrawFrame();
 
     std::unique_ptr<Mp4Parser> parser_;
     std::unique_ptr<GLRenderHost> renderHost_;

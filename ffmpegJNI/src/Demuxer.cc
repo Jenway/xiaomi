@@ -61,6 +61,19 @@ bool Demuxer::SeekTo(double timestamp_sec)
     return true;
 }
 
+double Demuxer::GetDuration() const
+{
+    if (!source_) {
+        return 0.0;
+    }
+
+    AVFormatContext* ctx = source_->get_format_context();
+    if (!ctx || ctx->duration == AV_NOPTS_VALUE) {
+        return 0.0;
+    }
+    return static_cast<double>(ctx->duration) / AV_TIME_BASE;
+}
+
 void Demuxer::run()
 {
     std::cout << "[Demuxer Thread] Starting." << std::endl;

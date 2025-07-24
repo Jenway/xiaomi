@@ -25,6 +25,7 @@ public:
     void Pause();
     void Resume();
     bool SeekTo(double timestamp_sec);
+    double GetDuration() const;
 
 private:
     void run();
