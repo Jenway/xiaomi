@@ -249,40 +249,58 @@ void NativePlayer::Impl::fsm_loop()
 int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData, void* audioData, int32_t numFrames)
 {
     auto* impl = static_cast<NativePlayer::Impl*>(userData);
-    if ((impl == nullptr) || !impl->audio_frame_queue_ || impl->state_ == PlayerState::Stopped) {
+    if ((impl == nullptr) || !impl->audio_frame_queue_) {
         return AAUDIO_CALLBACK_RESULT_STOP;
     }
 
-    // 注意：这里的 "2 * sizeof(int16_t)" 应该根据你的音频流格式动态获取，避免写死
     int32_t channelCount = AAudioStream_getChannelCount(stream);
-    int32_t format = AAudioStream_getFormat(stream); // e.g., AAUDIO_FORMAT_PCM_I16
+    int32_t format = AAudioStream_getFormat(stream);
     int32_t bytesPerSample = (format == AAUDIO_FORMAT_PCM_I16) ? sizeof(int16_t) : sizeof(float);
     int32_t bytesNeeded = numFrames * channelCount * bytesPerSample;
-
     int32_t bytesCopied = 0;
 
     while (bytesCopied < bytesNeeded) {
         if (impl->audio_buffer_ptr_ == nullptr || impl->audio_buffer_size_ == 0) {
-            if (impl->audio_frame_queue_->try_pop(impl->current_audio_frame_)) {
-                impl->master_clock_pts_ = impl->current_audio_frame_->duration + impl->master_clock_pts_.load();
 
+            // 尝试从队列中取出一帧
+            if (impl->audio_frame_queue_->try_pop(impl->current_audio_frame_)) {
+                // 如果成功取出，立即诊断它！
+                if (impl->current_audio_frame_) {
+
+                    double frame_pts = impl->current_audio_frame_->pts;
+                    // 打印我们拿到的真实 PTS 值
+                    LOGI("AUDIO_CB: Popped new audio frame with PTS = %.3f", frame_pts);
+
+                    if (frame_pts >= 0) {
+                        LOGI("AUDIO_CB: PTS is valid. Updating master clock from %.3f to %.3f", impl->master_clock_pts_.load(), frame_pts);
+                        impl->master_clock_pts_ = frame_pts;
+                    } else {
+                        LOGW("AUDIO_CB: Popped frame has invalid PTS (%.3f). Clock not updated.", frame_pts);
+                    }
+                } else {
+                    LOGE("AUDIO_CB: try_pop succeeded but returned a null frame pointer!");
+                }
+
+                // 设置数据指针以供消费
                 impl->audio_buffer_ptr_ = impl->current_audio_frame_->interleaved_pcm;
                 impl->audio_buffer_size_ = impl->current_audio_frame_->interleaved_size;
+
             } else {
+                // 如果队列为空，则跳出循环
                 break;
             }
         }
 
+        // --- 拷贝数据的逻辑保持不变 ---
         int bytesToCopy = std::min(bytesNeeded - bytesCopied, impl->audio_buffer_size_);
         memcpy(static_cast<uint8_t*>(audioData) + bytesCopied, impl->audio_buffer_ptr_, bytesToCopy);
         bytesCopied += bytesToCopy;
-
         impl->audio_buffer_ptr_ += bytesToCopy;
         impl->audio_buffer_size_ -= bytesToCopy;
     }
 
-    // 如果拷贝的数据量少于需要的数据量（比如队列空了），用静音数据填充剩余部分
     if (bytesCopied < bytesNeeded) {
+        // LOGI("AUDIO_CB: Padding with %d bytes of silence.", bytesNeeded - bytesCopied);
         memset(static_cast<uint8_t*>(audioData) + bytesCopied, 0, bytesNeeded - bytesCopied);
     }
 
@@ -316,18 +334,26 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
     mp4parser::Callbacks callbacks;
 
     callbacks.on_video_frame_decoded = [this, weak_self](std::shared_ptr<VideoFrame> frame) {
+        // LOGI("Tryinng push video frame.");
+
         if (auto self = weak_self.lock()) {
+            // LOGI("Tryinng push video frame. -- into the lock");
+
             if (video_frame_queue_) {
                 video_frame_queue_->push(std::move(frame));
             }
         }
+        // LOGI("Tryinng push video frame. -- Done");
     };
 
     callbacks.on_audio_frame_decoded = [this, weak_self](std::shared_ptr<AudioFrame> frame) {
+        // LOGI("Tryinng push Audio frame.");
         if (auto self = weak_self.lock()) {
+            // LOGI("Tryinng push Audio frame. -- int he lock");
             if (audio_frame_queue_) {
                 audio_frame_queue_->push(std::move(frame));
             }
+            // LOGI("Tryinng push Audio frame. -- Done");
         }
     };
 
@@ -342,9 +368,8 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
             }
         }
     };
-    // 4. 创建解析器，以便获取媒体信息
-    parser_ = Mp4Parser::create(config, callbacks);
 
+    parser_ = Mp4Parser::create(config, callbacks);
     if (!parser_) {
         LOGE("FSM: Mp4Parser creation failed.");
         cleanup_resources();
@@ -354,7 +379,7 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
         return;
     }
 
-    // 5. 使用从文件中获取的真实参数来配置音频渲染器
+    // Audio render
     auto audio_params = parser_->getAudioParams();
     // 检查参数是否有效
     if (audio_params.sample_rate <= 0 || audio_params.channel_count <= 0) {
@@ -452,22 +477,28 @@ void NativePlayer::Impl::cleanup_resources()
         audio_frame_queue_->shutdown();
     audio_frame_queue_.reset();
 }
-
 void NativePlayer::Impl::run_sync_cycle()
 {
-    // 检查视频队列是否存在且不为空
     if (!video_frame_queue_ || video_frame_queue_->empty()) {
-        return; // 视频队列为空，等待缓冲
+        // 这是正常情况，尤其是在播放开始或 seek 之后，表示在等待解码器缓冲
+        // LOGD("SYNC: Video queue is empty, waiting for buffer."); // 可以用 LOGD 减少日志量
+        return;
     }
 
-    // 查看视频队列的头部帧，并将其赋值给 video_frame，但先不弹出
+    // 查看视频队列的头部帧，但不弹出
     std::optional<std::shared_ptr<VideoFrame>> video_frame_opt = video_frame_queue_->front();
-    std::shared_ptr<VideoFrame> video_frame;
     if (!video_frame_opt) {
+        LOGW("SYNC: Queue not empty, but front() returned nullopt. Race condition?");
+        return;
     }
-    video_frame = *video_frame_opt;
 
+    // 使用 const 引用避免不必要的拷贝
+    const std::shared_ptr<VideoFrame>& video_frame = *video_frame_opt;
     if (!video_frame) {
+        LOGE("SYNC: Popped a null video frame pointer!");
+        // 从队列中移除这个坏数据
+        std::shared_ptr<VideoFrame> dummy;
+        video_frame_queue_->try_pop(dummy);
         return;
     }
 
@@ -476,28 +507,31 @@ void NativePlayer::Impl::run_sync_cycle()
     double diff = video_pts - master_clock;
 
     // 视频帧的显示时间还未到
-    if (diff > 0.01) { // 阈值可以微调
-        // 视频早了，等待。这里什么都不做，FSM循环的10ms超时会自动产生等待效果。
+    if (diff > 0.01) {
+        LOGI("SYNC: Video is early. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f. Waiting...", video_pts, master_clock, diff);
+        // 这里什么都不做，FSM循环的10ms超时会自动产生等待效果。
         return;
     }
 
-    // --- 从此刻起，我们决定要处理这一帧了 ---
+    // --- 决定处理这一帧了 ---
 
-    // 视频时间已到或已晚，从队列中正式弹出这一帧
-    // 注意：因为我们已经拿到了 frame 的 shared_ptr，即使其他线程操作队列，我们的 frame 也是安全的。
-    // 我们需要再弹出一个，因为我们之前只是 front()
-    std::shared_ptr<VideoFrame> temp_frame_to_pop;
-    video_frame_queue_->try_pop(temp_frame_to_pop);
-    // (我们已经有了 video_frame 的拷贝，所以 temp_frame_to_pop 只是为了完成弹出动作)
+    // 从队列中正式弹出这一帧。
+    std::shared_ptr<VideoFrame> frame_to_process;
+    if (!video_frame_queue_->try_pop(frame_to_process)) {
+        LOGW("SYNC: front() had a frame, but try_pop() failed. Race condition?");
+        return;
+    }
 
-    // 视频太晚了 (例如超过100ms)，直接丢弃，不渲染
+    // 视频太晚了 (例如超过100ms)，直接丢弃
     if (diff < -0.1) {
-        LOGW("Dropping late video frame. PTS: %.3f, Clock: %.3f", video_pts, master_clock);
+        LOGW("SYNC: Video is too late. Dropping frame. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f", video_pts, master_clock, diff);
         return; // 帧被弹出并丢弃
     }
 
     // 时间刚刚好或略晚，渲染它
-    if (renderHost_) { // video_frame 已经被我们持有了，无需再检查
-        renderHost_->submitFrame(video_frame);
+    LOGI("SYNC: Submitting frame to renderer. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f", video_pts, master_clock, diff);
+    if (renderHost_) {
+        // [BUG 已修复] 提交刚刚弹出的 frame_to_process，而不是可能已失效的 video_frame 引用
+        renderHost_->submitFrame(std::move(frame_to_process));
     }
 }
