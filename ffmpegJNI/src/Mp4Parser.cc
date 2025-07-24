@@ -7,6 +7,7 @@
 #include "Packet.hpp"
 #include "SemQueue.hpp"
 #include <android/log.h>
+#include <memory>
 
 #define LOG_TAG "Mp4Parser"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -118,23 +119,70 @@ struct Mp4Parser::Impl {
 
 private:
     // --- 命令处理器 (在控制线程中安全执行) ---
-    // 在 Mp4Parser::Impl::handle_start 中
     void handle_start()
     {
         if (state_ != PlayerState::Stopped)
             return;
         LOGI("Handling START command...");
-
-        // 这一部分不变
-        source = std::make_shared<MediaSource>();
+        // 2. 独立初始化视频管道
         try {
-            source->open(config.file_path);
+            video_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
+            auto video_codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
+            video_decoder_ = std::make_unique<Decoder>(video_codec_context, *video_packet_queue_);
+
+            auto on_video_frame_cb = [this](const AVFrame* frame) {
+                if (callbacks.on_video_frame_decoded) {
+                    callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
+                }
+            };
+            video_decoder_->Start(on_video_frame_cb);
+            LOGI("Video pipeline initialized successfully.");
         } catch (const std::exception& e) {
-            LOGI("Failed to open : %s", config.file_path.c_str());
-            report_error(e.what());
+            LOGE("Failed to initialize video pipeline: %s. Continuing with audio only.", e.what());
+            video_decoder_.reset();
+            video_packet_queue_.reset();
+        }
+
+        // 3. 独立初始化音频管道
+        if (source->has_audio_stream()) {
+            try {
+                audio_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_audio_packet_queue_size);
+                auto audio_codec_context = std::make_shared<DecoderContext>(source->get_audio_codecpar());
+                audio_decoder_ = std::make_unique<Decoder>(audio_codec_context, *audio_packet_queue_);
+
+                auto on_audio_frame_cb = [this](const AVFrame* frame) {
+                    if (callbacks.on_audio_frame_decoded) {
+                        /*
+                        LOGI("Decoded Audio Frame: nb_samples=%d, sample_rate=%d, channels=%d, format=%s",
+                            frame->nb_samples, frame->sample_rate, frame->ch_layout.nb_channels,
+                            av_get_sample_fmt_name((AVSampleFormat)frame->format));
+
+                        // Also check if it's planar or interleaved
+                        LOGI("  Is Planar: %s", av_sample_fmt_is_planar((AVSampleFormat)frame->format) ? "true" : "false");
+                        for (int i = 0; i < AV_NUM_DATA_POINTERS && frame->data[i] != nullptr; ++i) {
+                            LOGI("  data[%d]=%p, linesize[%d]=%d", i, frame->data[i], i, frame->linesize[i]);
+                        }
+                        */
+                        callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
+                    }
+                };
+                audio_decoder_->Start(on_audio_frame_cb);
+                LOGI("Audio pipeline initialized successfully.");
+            } catch (const std::exception& e) {
+                LOGE("Failed to initialize audio pipeline: %s. Continuing with video only.", e.what());
+                audio_decoder_.reset();
+                audio_packet_queue_.reset();
+            }
+        }
+
+        // 4. 检查是否所有管道都初始化失败
+        if (!video_decoder_ && !audio_decoder_) {
+            report_error("Both video and audio pipelines failed to initialize.");
+            cleanup_resources();
             return;
         }
-        // 启动解复用
+
+        // 5. 在所有依赖项都创建后，再定义解复用回调
         auto on_packet_cb = [this](Packet& packet) -> bool {
             if (state_.load() == PlayerState::Stopped || state_.load() == PlayerState::Error) {
                 return false; // 指示Demuxer停止
@@ -149,55 +197,8 @@ private:
 
             return true; // 丢弃其他包，但继续解复用
         };
-        demuxer = std::make_unique<Demuxer>(source);
 
-        // --- 独立初始化视频管道 ---
-        try {
-            video_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
-            auto video_codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
-            video_decoder_ = std::make_unique<Decoder>(video_codec_context, *video_packet_queue_);
-            auto on_video_frame_cb = [this](const AVFrame* frame) {
-                if (callbacks.on_video_frame_decoded) {
-                    callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
-                }
-            };
-            video_decoder_->Start(on_video_frame_cb);
-            LOGI("Video pipeline initialized successfully.");
-        } catch (const std::exception& e) {
-            LOGE("Failed to initialize video pipeline: %s. Continuing with audio only.", e.what());
-            video_decoder_.reset(); // 清理失败的组件
-            video_packet_queue_.reset();
-        }
-
-        // --- 独立初始化音频管道 ---
-        if (source->has_audio_stream()) {
-            try {
-                audio_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_audio_packet_queue_size);
-                if (audio_decoder_) {
-                    auto on_audio_frame_cb = [this](const AVFrame* frame) {
-                        if (callbacks.on_audio_frame_decoded) {
-                            // 假设 convert_audio_frame 存在
-                            callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
-                        }
-                    };
-                    audio_decoder_->Start(on_audio_frame_cb);
-                }
-                LOGI("Audio pipeline initialized successfully.");
-            } catch (const std::exception& e) {
-                LOGE("Failed to initialize audio pipeline: %s. Continuing with video only.", e.what());
-                audio_decoder_.reset();
-                audio_packet_queue_.reset();
-            }
-        }
-
-        // 如果音视频都失败了，才算真正失败
-        if (!video_decoder_ && !audio_decoder_) {
-            report_error("Both video and audio pipelines failed to initialize.");
-            cleanup_resources();
-            return;
-        }
-
-        // 启动解复用
+        // 6. 启动解复用
         demuxer->Start(on_packet_cb);
         set_state(PlayerState::Running);
         LOGI("Parser started.");
@@ -304,9 +305,23 @@ private:
 
 std::unique_ptr<Mp4Parser> Mp4Parser::create(const Config& config, const Callbacks& callbacks)
 {
+    // 使用 shared_ptr 来管理实例，因为 Impl 内部需要一个 this 指针
     auto instance = std::unique_ptr<Mp4Parser>(new Mp4Parser());
     instance->impl_ = std::make_unique<Impl>(config, callbacks);
-    LOGI("Mp4Parser instance created.");
+
+    // --- 新增的同步初始化逻辑 ---
+    try {
+        LOGI("Mp4Parser::create - Initializing media source...");
+        instance->impl_->source = std::make_shared<MediaSource>();
+        instance->impl_->source->open(config.file_path); // 同步打开文件并解析元数据
+        instance->impl_->demuxer = std::make_unique<Demuxer>(instance->impl_->source);
+        LOGI("Mp4Parser instance created and media source initialized.");
+    } catch (const std::exception& e) {
+        LOGE("Failed to create Mp4Parser: %s", e.what());
+        // 如果初始化失败，返回 nullptr
+        return nullptr;
+    }
+
     return instance;
 }
 Mp4Parser::~Mp4Parser()
@@ -351,7 +366,13 @@ double Mp4Parser::get_duration()
     }
     return -1.0;
 }
-
+player_utils::AudioParams Mp4Parser::getAudioParams() const
+{
+    if (impl_ && impl_->source) {
+        return impl_->source->get_audio_params();
+    }
+    return { 0, 0 }; // 返回无效值
+}
 PlayerState Mp4Parser::get_state() const
 {
     return impl_ ? impl_->state_.load() : PlayerState::Stopped;

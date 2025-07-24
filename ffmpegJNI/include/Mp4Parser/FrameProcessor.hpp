@@ -1,8 +1,7 @@
 // FrameProcessor.hpp
 #pragma once
-
+#include "AudioFrame.hpp"
 #include "Entitys.hpp"
-#include "libavcodec/avcodec.h"
 extern "C" {
 #include <libavutil/frame.h>
 }

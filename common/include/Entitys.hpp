@@ -1,4 +1,5 @@
 #pragma once
+
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -14,16 +15,9 @@ struct VideoFrame {
     double pts;
 };
 
-struct AudioFrame {
-    uint8_t* data[8] = { nullptr };
-    int linesize[8] = { 0 };
-
-    int nb_samples = 0;
-    int channels = 2;
-    int sample_rate = 44100;
-
-    double pts = 0.0;
-    double duration = 0.0;
+struct AudioParams {
+    int32_t sample_rate;
+    int32_t channel_count;
 };
 
 enum class PlayerState {

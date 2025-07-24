@@ -1,6 +1,6 @@
 #pragma once
+#include "AudioFrame.hpp"
 #include "Entitys.hpp"
-
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -9,6 +9,7 @@
 struct AVFrame;
 
 namespace mp4parser {
+
 using player_utils::AudioFrame;
 using player_utils::VideoFrame;
 
@@ -44,7 +45,7 @@ public:
     void seek(double time_sec);
 
     double get_duration();
-
+    [[nodiscard]] player_utils::AudioParams getAudioParams() const;
     [[nodiscard]] PlayerState get_state() const;
 
     ~Mp4Parser();
