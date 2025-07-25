@@ -165,7 +165,7 @@ private:
                 // [日志] 确认视频帧解码回调被触发
                 LOGD("Video frame decoded callback triggered. PTS: %.3f", frame->pts * av_q2d(source->get_video_stream()->time_base));
                 if (callbacks.on_video_frame_decoded) {
-                    callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
+                    return callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
                 }
             };
             video_decoder_->Start(on_video_frame_cb);
@@ -187,7 +187,7 @@ private:
                     // [日志] 确认音频帧解码回调被触发
                     LOGD("Audio frame decoded callback triggered. PTS: %.3f", frame->pts * av_q2d(source->get_audio_stream()->time_base));
                     if (callbacks.on_audio_frame_decoded) {
-                        callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
+                        return callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
                     }
                 };
                 audio_decoder_->Start(on_audio_frame_cb);
@@ -216,11 +216,11 @@ private:
 
             // [日志] 确认数据包路由
             if (video_decoder_ && packet.streamIndex() == source->get_video_stream_index()) {
-                LOGD("Routing video packet (PTS: %ld) to video queue. Queue size: %zu", packet.get()->pts, video_packet_queue_->size());
+                // LOGD("Routing video packet (PTS: %ld) to video queue. Queue size: %zu", packet.get()->pts, video_packet_queue_->size());
                 return video_packet_queue_->push(std::move(packet));
             }
             if (audio_decoder_ && packet.streamIndex() == source->get_audio_stream_index()) {
-                LOGD("Routing audio packet (PTS: %ld) to audio queue. Queue size: %zu", packet.get()->pts, audio_packet_queue_->size());
+                // LOGD("Routing audio packet (PTS: %ld) to audio queue. Queue size: %zu", packet.get()->pts, audio_packet_queue_->size());
                 return audio_packet_queue_->push(std::move(packet));
             }
 
@@ -276,7 +276,6 @@ private:
         demuxer->Resume();
         set_state(PlayerState::Running);
     }
-
     void handle_seek(Command& cmd)
     {
         LOGI("Handling SEEK to %.3f sec...", cmd.time_sec);
@@ -284,69 +283,79 @@ private:
         PlayerState previous_state = state_.load();
         set_state(PlayerState::Seeking);
 
-        LOGI("Seek: Pausing demuxer...");
+        // --- 1. 停止所有活动 ---
         demuxer->Pause();
-
-        LOGI("Seek: Shutting down packet queues to unblock decoders...");
-        if (video_packet_queue_)
-            video_packet_queue_->shutdown();
-        if (audio_packet_queue_)
-            audio_packet_queue_->shutdown();
-
-        LOGI("Seek: Stopping (joining) decoders...");
-        if (video_decoder_)
+        if (video_decoder_) {
+            if (video_packet_queue_)
+                video_packet_queue_->shutdown();
             video_decoder_->Stop();
-        if (audio_decoder_)
+        }
+        if (audio_decoder_) {
+            if (audio_packet_queue_)
+                audio_packet_queue_->shutdown();
             audio_decoder_->Stop();
+        }
 
-        LOGI("Seek: Seeking demuxer to %.3f...", cmd.time_sec);
+        // --- 2. 彻底销毁旧的管道组件 (下游到上游) ---
+        LOGI("Seek: Destroying old pipeline components...");
+        video_decoder_.reset();
+        audio_decoder_.reset();
+        video_packet_queue_.reset();
+        audio_packet_queue_.reset();
+
+        // --- 3. 操作数据源 ---
+        LOGI("Seek: Seeking demuxer...");
         if (demuxer) {
             demuxer->SeekTo(cmd.time_sec);
         }
 
-        LOGI("Seek: Re-initializing decoders...");
+        // --- 4. 重建全新的管道 ---
+        LOGI("Seek: Re-creating pipeline components...");
         try {
-            // --- 重新初始化视频解码器 ---
+            // 创建新队列
+            video_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_packet_queue_size);
+            audio_packet_queue_ = std::make_unique<SemQueue<Packet>>(config.max_audio_packet_queue_size);
+
+            // 定义回调
+            auto on_video_frame_cb = [this](const AVFrame* frame) -> bool {
+                if (callbacks.on_video_frame_decoded) {
+                    return callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
+                }
+                return false;
+            };
+            auto on_audio_frame_cb = [this](const AVFrame* frame) -> bool {
+                if (callbacks.on_audio_frame_decoded) {
+                    return callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
+                }
+                return false;
+            };
+
+            // 创建并启动新解码器
             auto video_codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
             video_decoder_ = std::make_unique<Decoder>(video_codec_context, *video_packet_queue_);
-            auto on_video_frame_cb = [this](const AVFrame* frame) {
-                if (callbacks.on_video_frame_decoded) {
-                    callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
-                }
-            };
             video_decoder_->Start(on_video_frame_cb);
 
-            // --- 重新初始化音频解码器 ---
             if (source->has_audio_stream()) {
                 auto audio_codec_context = std::make_shared<DecoderContext>(source->get_audio_codecpar());
                 audio_decoder_ = std::make_unique<Decoder>(audio_codec_context, *audio_packet_queue_);
-                auto on_audio_frame_cb = [this](const AVFrame* frame) {
-                    if (callbacks.on_audio_frame_decoded) {
-                        callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
-                    }
-                };
                 audio_decoder_->Start(on_audio_frame_cb);
             }
         } catch (const std::exception& e) {
-            report_error("Failed to re-initialize decoders after seek.");
+            report_error("Failed to re-create pipeline after seek.");
             if (cmd.promise)
                 cmd.promise->set_value();
-
             handle_stop();
             return;
         }
 
+        // --- 5. 恢复 ---
+        set_state(previous_state);
         if (previous_state == PlayerState::Running) {
-            LOGI("Seek: Resuming demuxer.");
             demuxer->Resume();
         }
 
-        // 恢复到 seek 之前的状态
-        LOGI("Seek command processed, resuming previous state.");
-        set_state(previous_state);
-
+        // --- 6. 完成 ---
         if (cmd.promise) {
-            LOGI("Fulfilling seek promise to unblock FSM thread.");
             cmd.promise->set_value();
         }
     }

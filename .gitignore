@@ -12,3 +12,4 @@ install
 copy.sh
 log.txt
 .gitignore
+common/src/NativePlayer.cc

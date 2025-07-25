@@ -117,8 +117,19 @@ public:
     void clear()
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
+
+        size_t count = queue_.size();
         Container empty_queue;
         queue_.swap(empty_queue);
+
+        // 消耗掉所有 filled 信号
+        for (size_t i = 0; i < count; ++i) {
+            filled_slots_.try_acquire();
+        }
+        // 返还所有 empty 信号
+        for (size_t i = 0; i < count; ++i) {
+            empty_slots_.release();
+        }
     }
     void reset()
     {

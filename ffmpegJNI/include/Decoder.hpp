@@ -13,7 +13,7 @@ extern "C" {
 
 class Decoder {
 public:
-    using FrameSink = std::function<void(const AVFrame*)>;
+    using FrameSink = std::function<bool(const AVFrame*)>;
 
     Decoder(std::shared_ptr<DecoderContext> ctx,
         player_utils::SemQueue<ffmpeg_utils::Packet>& source_queue);

@@ -396,12 +396,12 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
     callbacks.on_video_frame_decoded = [this](auto frame) {
         if (pipeline_ && pipeline_->video_frame_queue_) {
             LOGD("Video frame decoded callback triggered. PTS: %.3f", frame->pts);
-            pipeline_->video_frame_queue_->push(std::move(frame));
+            return pipeline_->video_frame_queue_->push(std::move(frame));
         }
     };
     callbacks.on_audio_frame_decoded = [this](auto frame) {
         if (pipeline_ && pipeline_->audio_frame_queue_) {
-            pipeline_->audio_frame_queue_->push(std::move(frame));
+            return pipeline_->audio_frame_queue_->push(std::move(frame));
         }
     };
 
@@ -502,6 +502,15 @@ void NativePlayer::Impl::handle_seek(const CommandSeek& cmd)
     }
 
     // 4. Mp4Parser 已经停止了它的线程。现在我们重置“下游”的帧队列，为播放做准备。
+    LOGI("Seek Orchestrator: Clearing potentially stale frames from queues...");
+    if (pipeline_ && pipeline_->video_frame_queue_) {
+        pipeline_->video_frame_queue_->clear(); // 使用你的 clear 方法
+    }
+    if (pipeline_ && pipeline_->audio_frame_queue_) {
+        pipeline_->audio_frame_queue_->clear();
+    }
+
+    // 现在才重置队列，让它们准备好接收 seek 之后的新数据
     LOGI("Seek Orchestrator: Resetting FRAME queues...");
     if (pipeline_ && pipeline_->video_frame_queue_) {
         pipeline_->video_frame_queue_->reset();

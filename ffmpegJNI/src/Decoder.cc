@@ -108,7 +108,8 @@ void Decoder::run()
 
 void Decoder::receive_all_available_frames()
 {
-    while (true) {
+    bool sink_is_ok = true;
+    while (sink_is_ok) {
         int ret = avcodec_receive_frame(ctx_->get(), decoded_frame_);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
@@ -121,16 +122,16 @@ void Decoder::receive_all_available_frames()
         if (decoded_frame_->pts == AV_NOPTS_VALUE && last_packet_pts_ != AV_NOPTS_VALUE) {
             LOGW("Frame has no PTS, using last packet PTS: %ld", last_packet_pts_);
             decoded_frame_->pts = last_packet_pts_;
-            last_packet_pts_ = AV_NOPTS_VALUE;
+            // last_packet_pts_ = AV_NOPTS_VALUE;
         }
 
         LOGD("VideoDecoder output frame with pts: %.3f", decoded_frame_->pts * av_q2d(ctx_->get()->time_base));
 
         if (frame_sink_) {
-            AVFrame* new_frame = av_frame_alloc();
-            av_frame_ref(new_frame, decoded_frame_);
-            frame_sink_(new_frame);
-            av_frame_free(&new_frame);
+            if (!frame_sink_(decoded_frame_)) {
+                LOGI("Decoder: Frame sink returned false. Aborting receive loop.");
+                sink_is_ok = false; // 设置标志以退出循环
+            }
         }
 
         av_frame_unref(decoded_frame_);

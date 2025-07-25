@@ -30,8 +30,8 @@ struct Config {
 };
 
 struct Callbacks {
-    std::function<void(std::shared_ptr<VideoFrame>)> on_video_frame_decoded;
-    std::function<void(std::shared_ptr<AudioFrame>)> on_audio_frame_decoded;
+    std::function<bool(std::shared_ptr<VideoFrame>)> on_video_frame_decoded;
+    std::function<bool(std::shared_ptr<AudioFrame>)> on_audio_frame_decoded;
     std::function<void(PlayerState& state)> on_state_changed;
     std::function<void(const std::string& msg)> on_error;
     std::function<void()> on_playback_finished;
