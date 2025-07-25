@@ -13,6 +13,13 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+static void log_thread_exit()
+{
+    std::stringstream ss;
+    ss << "<<< Render thread [ID: " << std::this_thread::get_id() << "] is exiting.";
+    LOGI("%s", ss.str().c_str());
+}
+
 namespace render_utils {
 
 struct GLRenderHost::Impl {
@@ -64,10 +71,14 @@ bool GLRenderHost::init(ANativeWindow* window)
     impl_->initialized = true;
 
     impl_->state_ = Impl::State::RUNNING;
-    impl_->render_thread_ = std::thread(&Impl::renderLoop, impl_.get());
 
     LOGI("Initialized and render thread started.");
     return true;
+}
+
+void GLRenderHost::start()
+{
+    impl_->render_thread_ = std::thread(&Impl::renderLoop, impl_.get());
 }
 
 void GLRenderHost::release()
@@ -177,12 +188,12 @@ void GLRenderHost::Impl::renderLoop()
     }
 
     LOGI("<<< Render thread is exiting. Releasing EGL.");
-    LOGI("<<< Render thread [ID: %d] is exiting. Releasing EGL.", std::this_thread::get_id());
+    log_thread_exit();
     renderer_.reset();
     if (egl_) {
-        LOGI("EGL releasing on thread %d...", std::this_thread::get_id());
-        egl_->release(); // 确保 EGL 资源在同一个线程被释放
-        LOGI("EGL released on thread %d.", std::this_thread::get_id());
+        // LOGI("EGL releasing on thread %d...", std::this_thread::get_id());
+        egl_->release();
+        // LOGI("EGL released on thread %d.", std::this_thread::get_id());
         egl_.reset();
     }
 }

@@ -1,12 +1,13 @@
+#pragma once
 #include <aaudio/AAudio.h>
 
 // AAudio使用的回调函数定义。第一个参数为当前的音频流，第二个参数是用户设置的数据指针，
 // 第三个参数是AAudio提供的音频缓冲区，需要在回调中向该缓冲区写入pcm数据，需要写入的
 // 采样数由第四个参数指定。在完成向音频缓冲区写入数据后，返回0表示让AAudio在下一次继续调用
 // 这个回调，返回1表示希望AAudio停止调用回调。
-using AAudioCallback = int(*)(AAudioStream*, void*, void*, int32_t);
+using AAudioCallback = int (*)(AAudioStream*, void*, void*, int32_t);
 
-class AAudioRender{
+class AAudioRender {
     AAudioStream* stream;
     int32_t channel_count;
     int32_t sample_rate;
@@ -16,7 +17,7 @@ class AAudioRender{
     aaudio_format_t format;
 
 public:
-    ~AAudioRender() ;
+    ~AAudioRender();
 
     AAudioRender();
 

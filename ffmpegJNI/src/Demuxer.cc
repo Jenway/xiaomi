@@ -13,6 +13,30 @@ extern "C" {
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#include <sstream> // Required for stringstream
+#include <thread> // Required for this_thread
+
+static void log_seek_message(int stream_index, double time_sec, int64_t target_ts)
+{
+    std::stringstream ss;
+    ss << "Demuxer: Seeking stream " << stream_index
+       << " to time " << time_sec << " (timestamp " << target_ts << ")";
+    LOGI("%s", ss.str().c_str());
+}
+
+static void log_thread_entry()
+{
+    std::stringstream ss;
+    ss << ">>> Demux thread [ID: " << std::this_thread::get_id() << "] entered.";
+    LOGI("%s", ss.str().c_str());
+}
+
+static void log_thread_exit()
+{
+    std::stringstream ss;
+    ss << "<<< Demux thread [ID: " << std::this_thread::get_id() << "] is exiting.";
+    LOGI("%s", ss.str().c_str());
+}
 
 Demuxer::Demuxer(std::shared_ptr<MediaSource> source)
     : source_(std::move(source))
@@ -79,7 +103,7 @@ void Demuxer::SeekTo(double time_sec)
     // 将秒转换为流的内部时间基（time_base）
     int64_t target_ts = time_sec / av_q2d(stream->time_base);
 
-    LOGI("Demuxer: Seeking stream %d to time %.3f (timestamp %lld)", stream_index, time_sec, target_ts);
+    log_seek_message(stream_index, time_sec, target_ts);
 
     // av_seek_frame 是一个复杂的函数。
     // AVSEEK_FLAG_BACKWARD 标志意味着它会 seek 到目标时间戳之前的最近的一个关键帧（keyframe）。
@@ -108,7 +132,7 @@ double Demuxer::GetDuration() const
 
 void Demuxer::run()
 {
-    LOGI(">>> Demux thread [ID: %d] entered.", std::this_thread::get_id());
+    log_thread_entry();
 
     AVFormatContext* ctx = source_->get_format_context();
     if (!ctx) {
@@ -135,10 +159,10 @@ void Demuxer::run()
             current_seek_time = seek_timestamp_sec_.load();
             int64_t seek_target = static_cast<int64_t>(current_seek_time * AV_TIME_BASE);
 
-            std::cout << "[Demuxer Thread] Seeking to " << current_seek_time << "s" << std::endl;
+            std::cout << "[Demuxer Thread] Seeking to " << current_seek_time << "s" << '\n';
             int ret = av_seek_frame(ctx, -1, seek_target, AVSEEK_FLAG_BACKWARD);
             if (ret < 0) {
-                std::cerr << "[Demuxer Thread] Error seeking: " << ret << std::endl;
+                std::cerr << "[Demuxer Thread] Error seeking: " << ret << '\n';
             } else {
                 avformat_flush(ctx);
                 if (packet_sink_) {
@@ -181,5 +205,5 @@ void Demuxer::run()
             }
         }
     }
-    LOGI("<<< Demux thread [ID: %d] is exiting.", std::this_thread::get_id());
+    log_thread_exit();
 }

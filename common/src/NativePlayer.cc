@@ -2,8 +2,11 @@
 #include "AAudioRender.h"
 #include "Entitys.hpp"
 #include "GLRenderHost.hpp"
+#include "JniCallbackHandler.hpp"
+#include "MediaPipeline.hpp"
 #include "Mp4Parser.hpp"
 #include "SemQueue.hpp"
+#include "SyncClock.hpp"
 #include <aaudio/AAudio.h>
 #include <android/log.h>
 #include <android/native_window.h>
@@ -21,12 +24,10 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
-using mp4parser::Mp4Parser;
 using player_utils::AudioFrame;
 using player_utils::PlayerState;
 using player_utils::SemQueue;
 using player_utils::VideoFrame;
-using render_utils::GLRenderHost;
 using std::shared_ptr;
 using std::unique_ptr;
 
@@ -34,20 +35,70 @@ struct CommandPlay {
     std::string path;
     ANativeWindow* window {};
 };
+
 struct CommandPause {
     bool is_paused;
 };
+
 struct CommandStop { };
+
 struct CommandSeek {
     double position;
 };
+
 struct CommandShutdown { };
 
+struct CommandSetSpeed {
+    float speed;
+};
+
+struct AudioCallbackState {
+    std::atomic<bool> is_active { true };
+
+    SemQueue<shared_ptr<AudioFrame>>* audio_frame_queue {};
+    SyncClock* clock {}; // 用于更新主时钟
+    std::atomic<bool>* is_logically_paused {};
+
+    // 缓冲状态
+    std::shared_ptr<AudioFrame> current_audio_frame_;
+    uint8_t* audio_buffer_ptr_ = nullptr;
+    int audio_buffer_size_ = 0;
+};
+// 放在 NativePlayer::Impl 的定义之上
+class AudioCallbackGuard {
+public:
+    explicit AudioCallbackGuard(AudioCallbackState* state)
+        : state_(state)
+    {
+        if (state_) {
+            // 进入危险区域，关闭回调
+            state_->is_active.store(false);
+            // 等待，确保正在执行的回调能完成
+            std::this_thread::sleep_for(std::chrono::milliseconds(20)); // 等待时间可以缩短
+        }
+    }
+
+    ~AudioCallbackGuard()
+    {
+        if (state_) {
+            // 离开危险区域，重新打开回调
+            state_->is_active.store(true);
+        }
+    }
+
+    // 禁止拷贝
+    AudioCallbackGuard(const AudioCallbackGuard&) = delete;
+    AudioCallbackGuard& operator=(const AudioCallbackGuard&) = delete;
+
+private:
+    AudioCallbackState* state_;
+};
 using Command = std::variant<
     CommandPlay,
     CommandPause,
     CommandStop,
     CommandSeek,
+    CommandSetSpeed,
     CommandShutdown>;
 
 struct NativePlayer::Impl {
@@ -56,11 +107,6 @@ struct NativePlayer::Impl {
 
     void fsm_loop();
     void set_state(PlayerState new_state);
-
-    // --- JNI ---
-    JavaVM* jvm_ = nullptr;
-    jobject jni_player_object_ = nullptr;
-    jmethodID on_state_changed_mid_ = nullptr;
 
     // --- 状态和线程 ---
     NativePlayer* self_;
@@ -71,27 +117,16 @@ struct NativePlayer::Impl {
     std::condition_variable queue_cond_;
     bool shutdown_requested_ = false;
 
-    // --- core 组件 ---
-    unique_ptr<Mp4Parser> parser_;
-    unique_ptr<GLRenderHost> renderHost_;
-    unique_ptr<AAudioRender> audio_render_;
-
-    // Queue
-    unique_ptr<SemQueue<shared_ptr<VideoFrame>>> video_frame_queue_;
-    unique_ptr<SemQueue<shared_ptr<AudioFrame>>> audio_frame_queue_;
-
-    // 主时钟，由音频播放驱动
-    std::atomic<double> master_clock_pts_ { 0.0 };
+    // --- core ---
+    unique_ptr<MediaPipeline> pipeline_;
+    unique_ptr<AudioCallbackState> audio_cb_state_;
+    unique_ptr<SyncClock> clock_;
+    unique_ptr<JniCallbackHandler> jni_handler_;
 
     // --- 回调 ---
     static int audio_data_callback(AAudioStream* stream, void* userData, void* audioData, int32_t numFrames);
     std::function<void(PlayerState)> on_state_changed_cb_;
     std::function<void(const std::string&)> on_error_cb_;
-
-    // 音频回调缓冲
-    std::shared_ptr<AudioFrame> current_audio_frame_;
-    uint8_t* audio_buffer_ptr_ = nullptr;
-    int audio_buffer_size_ = 0;
 
     std::atomic<bool> is_logically_paused_ { false };
 
@@ -100,6 +135,7 @@ private:
     void handle_pause(const CommandPause& cmd);
     void handle_stop();
     void handle_seek(const CommandSeek& cmd);
+    void handle_set_speed(const CommandSetSpeed& cmd);
     void cleanup_resources();
     void run_sync_cycle();
 };
@@ -116,21 +152,31 @@ NativePlayer::~NativePlayer()
 }
 void NativePlayer::setJniEnv(JavaVM* vm, jobject player_object)
 {
-    impl_->jvm_ = vm;
-    impl_->jni_player_object_ = player_object;
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        LOGE("Failed to get JNIEnv in setJniEnv");
+        return;
+    }
+    jobject global_player_ref = env->NewGlobalRef(player_object);
+    if (global_player_ref == nullptr) {
+        LOGE("Failed to create global reference for player object");
+        return;
+    }
+
+    impl_->jni_handler_ = std::make_unique<JniCallbackHandler>(vm, global_player_ref);
+    LOGI("JniCallbackHandler created.");
 }
 
 void NativePlayer::play(const std::string& path, ANativeWindow* window)
 {
     LOGI("Dispatching PLAY command.");
-    // 关键：在将 window 指针交给内部线程之前，先 acquire 它
-    if (window) {
+    if (window != nullptr) {
         ANativeWindow_acquire(window);
         LOGI("ANativeWindow acquired in play().");
     }
     {
         std::lock_guard lock(impl_->queue_mutex_);
-        impl_->command_queue_.push(CommandPlay { path, window });
+        impl_->command_queue_.emplace(CommandPlay { path, window });
     }
     impl_->queue_cond_.notify_one();
 }
@@ -140,16 +186,17 @@ void NativePlayer::pause(bool is_paused)
     LOGI("Dispatching PAUSE command with is_paused = %d", is_paused);
     {
         std::lock_guard lock(impl_->queue_mutex_);
-        impl_->command_queue_.push(CommandPause { is_paused });
+        impl_->command_queue_.emplace(CommandPause { is_paused });
     }
     impl_->queue_cond_.notify_one();
 }
+
 void NativePlayer::stop()
 {
     LOGI("Dispatching STOP command.");
     {
         std::lock_guard lock(impl_->queue_mutex_);
-        impl_->command_queue_.push(CommandStop {});
+        impl_->command_queue_.emplace(CommandStop {});
     }
     impl_->queue_cond_.notify_one();
 }
@@ -159,23 +206,34 @@ void NativePlayer::seek(double time_sec)
     LOGI("Dispatching SEEK command.");
     {
         std::lock_guard lock(impl_->queue_mutex_);
-        impl_->command_queue_.push(CommandSeek { time_sec });
+        impl_->command_queue_.emplace(CommandSeek { time_sec });
     }
     impl_->queue_cond_.notify_one();
 }
 
 double NativePlayer::getDuration() const
 {
-    if (impl_ && impl_->parser_) {
-        return impl_->parser_->get_duration();
+    if (impl_ && impl_->pipeline_) {
+        return impl_->pipeline_->getDuration();
     }
     return 0.0;
+}
+
+void NativePlayer::setSpeed(float speed)
+{
+    LOGI("Dispatching SET_SPEED command with speed = %.2f", speed);
+    {
+        std::lock_guard lock(impl_->queue_mutex_);
+        impl_->command_queue_.emplace(CommandSetSpeed { speed });
+    }
+    impl_->queue_cond_.notify_one();
 }
 
 void NativePlayer::setOnStateChangedCallback(std::function<void(PlayerState)> cb)
 {
     impl_->on_state_changed_cb_ = std::move(cb);
 }
+
 void NativePlayer::setOnErrorCallback(std::function<void(const std::string&)> cb)
 {
     impl_->on_error_cb_ = std::move(cb);
@@ -199,15 +257,6 @@ NativePlayer::Impl::~Impl()
     queue_cond_.notify_one();
     if (fsm_thread_.joinable()) {
         fsm_thread_.join();
-    }
-
-    if ((jvm_ != nullptr) && (jni_player_object_ != nullptr)) {
-        JNIEnv* env = nullptr;
-        if (jvm_->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
-            env->DeleteGlobalRef(jni_player_object_);
-            jni_player_object_ = nullptr;
-            LOGI("JNI global reference deleted.");
-        }
     }
 }
 
@@ -252,6 +301,8 @@ void NativePlayer::Impl::fsm_loop()
                     handle_stop();
                 } else if (std::holds_alternative<CommandSeek>(cmd)) {
                     handle_seek(std::get<CommandSeek>(cmd));
+                } else if (std::holds_alternative<CommandSetSpeed>(cmd)) {
+                    handle_set_speed(std::get<CommandSetSpeed>(cmd));
                 }
                 break;
             default:
@@ -281,97 +332,13 @@ void NativePlayer::Impl::set_state(PlayerState new_state)
     state_ = new_state;
     LOGI("State changed to: %d", static_cast<int>(new_state));
 
-    if (!jvm_ || !jni_player_object_)
-        return;
-
-    JNIEnv* env;
-    bool attached = false;
-    if (jvm_->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
-        if (jvm_->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-            LOGE("Cannot attach current thread to JVM");
-            return;
-        }
-        attached = true;
+    if (on_state_changed_cb_) {
+        on_state_changed_cb_(new_state);
     }
 
-    if (!on_state_changed_mid_) {
-        jclass player_class = env->GetObjectClass(jni_player_object_);
-        on_state_changed_mid_ = env->GetMethodID(player_class, "onNativeStateChanged", "(I)V");
-        env->DeleteLocalRef(player_class);
-        if (!on_state_changed_mid_) {
-            LOGE("Cannot find method onNativeStateChanged(I)V");
-            if (attached)
-                jvm_->DetachCurrentThread();
-            return;
-        }
+    if (jni_handler_) {
+        jni_handler_->notifyStateChanged(new_state);
     }
-
-    env->CallVoidMethod(jni_player_object_, on_state_changed_mid_, static_cast<jint>(new_state));
-
-    if (attached) {
-        jvm_->DetachCurrentThread();
-    }
-}
-
-int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData, void* audioData, int32_t numFrames)
-{
-    auto* impl = static_cast<NativePlayer::Impl*>(userData);
-    if ((impl == nullptr) || !impl->audio_frame_queue_) {
-        return AAUDIO_CALLBACK_RESULT_STOP;
-    }
-
-    int32_t channelCount = AAudioStream_getChannelCount(stream);
-    int32_t format = AAudioStream_getFormat(stream);
-    int32_t bytesPerSample = (format == AAUDIO_FORMAT_PCM_I16) ? sizeof(int16_t) : sizeof(float);
-    int32_t bytesNeeded = numFrames * channelCount * bytesPerSample;
-    int32_t bytesCopied = 0;
-
-    if (impl->is_logically_paused_) {
-        // 如果是暂停状态，填充静音，并且不从队列取数据，也不推进时钟
-        memset(audioData, 0, bytesNeeded);
-        return AAUDIO_CALLBACK_RESULT_CONTINUE;
-    }
-
-    while (bytesCopied < bytesNeeded) {
-        if (impl->audio_buffer_ptr_ == nullptr || impl->audio_buffer_size_ == 0) {
-
-            if (impl->audio_frame_queue_->try_pop(impl->current_audio_frame_)) {
-                if (impl->current_audio_frame_) {
-
-                    double frame_pts = impl->current_audio_frame_->pts;
-                    LOGI("AUDIO_CB: Popped new audio frame with PTS = %.3f", frame_pts);
-
-                    if (frame_pts >= 0) {
-                        LOGI("AUDIO_CB: PTS is valid. Updating master clock from %.3f to %.3f", impl->master_clock_pts_.load(), frame_pts);
-                        impl->master_clock_pts_ = frame_pts;
-                    } else {
-                        LOGW("AUDIO_CB: Popped frame has invalid PTS (%.3f). Clock not updated.", frame_pts);
-                    }
-                } else {
-                    LOGE("AUDIO_CB: try_pop succeeded but returned a null frame pointer!");
-                }
-
-                impl->audio_buffer_ptr_ = impl->current_audio_frame_->interleaved_pcm;
-                impl->audio_buffer_size_ = impl->current_audio_frame_->interleaved_size;
-
-            } else {
-                break;
-            }
-        }
-
-        int bytesToCopy = std::min(bytesNeeded - bytesCopied, impl->audio_buffer_size_);
-        memcpy(static_cast<uint8_t*>(audioData) + bytesCopied, impl->audio_buffer_ptr_, bytesToCopy);
-        bytesCopied += bytesToCopy;
-        impl->audio_buffer_ptr_ += bytesToCopy;
-        impl->audio_buffer_size_ -= bytesToCopy;
-    }
-
-    if (bytesCopied < bytesNeeded) {
-        // LOGI("AUDIO_CB: Padding with %d bytes of silence.", bytesNeeded - bytesCopied);
-        memset(static_cast<uint8_t*>(audioData) + bytesCopied, 0, bytesNeeded - bytesCopied);
-    }
-
-    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
 void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
@@ -379,51 +346,26 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
     LOGI("FSM: Handling PLAY.");
     cleanup_resources();
 
-    state_ = PlayerState::Seeking;
-    if (on_state_changed_cb_)
-        on_state_changed_cb_(state_);
-    mp4parser::Config config;
-    config.file_path = cmd.path;
-    video_frame_queue_ = std::make_unique<player_utils::SemQueue<std::shared_ptr<VideoFrame>>>(30);
-    audio_frame_queue_ = std::make_unique<player_utils::SemQueue<std::shared_ptr<AudioFrame>>>(60);
-    master_clock_pts_ = 0.0;
+    // --- Core ---
+    pipeline_ = std::make_unique<MediaPipeline>();
+    clock_ = std::make_unique<SyncClock>();
+    audio_cb_state_ = std::make_unique<AudioCallbackState>();
 
-    renderHost_ = GLRenderHost::create();
-    if (!renderHost_->init(cmd.window)) {
-        LOGE("FSM: GLRenderHost init failed.");
-        state_ = PlayerState::End;
-        if (on_state_changed_cb_)
-            on_state_changed_cb_(state_);
-        return;
-    }
-
-    std::weak_ptr<NativePlayer> weak_self = self_->shared_from_this();
+    // --- callbacks ---
     mp4parser::Callbacks callbacks;
 
-    callbacks.on_video_frame_decoded = [this, weak_self](std::shared_ptr<VideoFrame> frame) {
-        // LOGI("Tryinng push video frame.");
-
-        if (auto self = weak_self.lock()) {
-            // LOGI("Tryinng push video frame. -- into the lock");
-
-            if (video_frame_queue_) {
-                video_frame_queue_->push(std::move(frame));
-            }
+    callbacks.on_video_frame_decoded = [this](auto frame) {
+        if (pipeline_ && pipeline_->video_frame_queue_) {
+            pipeline_->video_frame_queue_->push(std::move(frame));
         }
-        // LOGI("Tryinng push video frame. -- Done");
     };
-
-    callbacks.on_audio_frame_decoded = [this, weak_self](std::shared_ptr<AudioFrame> frame) {
-        // LOGI("Tryinng push Audio frame.");
-        if (auto self = weak_self.lock()) {
-            // LOGI("Tryinng push Audio frame. -- int he lock");
-            if (audio_frame_queue_) {
-                audio_frame_queue_->push(std::move(frame));
-            }
-            // LOGI("Tryinng push Audio frame. -- Done");
+    callbacks.on_audio_frame_decoded = [this](auto frame) {
+        if (pipeline_ && pipeline_->audio_frame_queue_) {
+            pipeline_->audio_frame_queue_->push(std::move(frame));
         }
     };
 
+    std::weak_ptr<NativePlayer> weak_self = self_->shared_from_this();
     callbacks.on_error = [weak_self](const std::string& msg) {
         if (auto strong_self = weak_self.lock()) {
             LOGE("Native error: %s", msg.c_str());
@@ -436,35 +378,34 @@ void NativePlayer::Impl::handle_play(const CommandPlay& cmd)
         }
     };
 
-    parser_ = Mp4Parser::create(config, callbacks);
-    if (!parser_) {
-        LOGE("FSM: Mp4Parser creation failed.");
+    set_state(PlayerState::Seeking);
+
+    // --- 初始化 pipeline ---
+    mp4parser::Config config;
+    config.file_path = cmd.path;
+
+    if (!pipeline_->initialize(config, cmd.window, callbacks)) {
+        LOGE("FSM: MediaPipeline initialization failed.");
         cleanup_resources();
-        state_ = PlayerState::End;
-        if (on_state_changed_cb_)
-            on_state_changed_cb_(state_);
+        set_state(PlayerState::End);
         return;
     }
 
-    auto audio_params = parser_->getAudioParams();
-    if (audio_params.sample_rate <= 0 || audio_params.channel_count <= 0) {
-        LOGE("Failed to get valid audio parameters from parser. Aborting audio setup.");
-        cleanup_resources();
-        state_ = PlayerState::End;
-        return;
-    }
-    LOGI("Audio params retrieved: Rate=%d, Channels=%d", audio_params.sample_rate, audio_params.channel_count);
+    // --- Audio callback ---
+    audio_cb_state_->audio_frame_queue = pipeline_->audio_frame_queue_.get();
+    audio_cb_state_->clock = clock_.get();
+    audio_cb_state_->is_logically_paused = &is_logically_paused_;
 
-    audio_render_ = std::make_unique<AAudioRender>();
-    audio_render_->configure(audio_params.sample_rate, audio_params.channel_count, AAUDIO_FORMAT_PCM_I16);
-    audio_render_->setCallback(Impl::audio_data_callback, this);
-    audio_render_->start();
+    pipeline_->audio_render_->setCallback(Impl::audio_data_callback, audio_cb_state_.get());
 
-    parser_->start();
+    pipeline_->start();
 
     set_state(PlayerState::Playing);
+}
 
-    LOGI("FSM: Switched to PLAYING state.");
+void NativePlayer::Impl::handle_set_speed(const CommandSetSpeed& cmd)
+{
+    LOGI("DO NOTHING NOW");
 }
 
 void NativePlayer::Impl::handle_pause(const CommandPause& cmd)
@@ -472,15 +413,9 @@ void NativePlayer::Impl::handle_pause(const CommandPause& cmd)
     LOGI("FSM: Handling PAUSE (%d).", cmd.is_paused);
     is_logically_paused_ = cmd.is_paused;
 
-    if (parser_)
-        parser_->pause();
-    if (renderHost_) {
-        cmd.is_paused ? renderHost_->pause() : renderHost_->resume();
+    if (pipeline_) {
+        pipeline_->pause(cmd.is_paused);
     }
-
-    // 硬暂停会有某些问题，比如卡死
-    // if (audio_render_)
-    //     audio_render_->pause(cmd.is_paused);
 
     set_state(cmd.is_paused ? PlayerState::Paused : PlayerState::Playing);
 }
@@ -495,52 +430,45 @@ void NativePlayer::Impl::handle_stop()
 void NativePlayer::Impl::handle_seek(const CommandSeek& cmd)
 {
     LOGI("FSM: Handling SEEK to %.2f.", cmd.position);
+
     set_state(PlayerState::Seeking);
 
-    if (parser_)
-        parser_->seek(cmd.position);
-    if (renderHost_)
-        renderHost_->flush();
-    if (audio_render_)
-        audio_render_->flush();
-    if (video_frame_queue_)
-        video_frame_queue_->clear();
-    if (audio_frame_queue_)
-        audio_frame_queue_->clear();
+    if (pipeline_) {
+        pipeline_->seek(cmd.position);
+        if (pipeline_->video_frame_queue_)
+            pipeline_->video_frame_queue_->clear();
+        if (pipeline_->audio_frame_queue_)
+            pipeline_->audio_frame_queue_->clear();
+        pipeline_->flush();
+    }
 
-    master_clock_pts_ = cmd.position;
-    current_audio_frame_.reset();
-    audio_buffer_ptr_ = nullptr;
-    audio_buffer_size_ = 0;
+    if (clock_) {
+        clock_->reset(cmd.position);
+    }
 
-    LOGI("FSM: Seek command processed. Buffers and clock reset.");
-    // Seek 之后恢复到之前的播放/暂停状态
     set_state(is_logically_paused_ ? PlayerState::Paused : PlayerState::Playing);
 }
 
 void NativePlayer::Impl::cleanup_resources()
 {
-    LOGI("FSM: Cleaning up resources.");
-    if (parser_) {
-        parser_->stop();
-        parser_.reset();
+    LOGI("FSM: Cleaning up resources, starting shutdown sequence...");
+
+    if (pipeline_) {
+        pipeline_->stop();
+        pipeline_.reset();
     }
-    if (audio_render_) {
-        audio_render_->pause(true); // 确保音频流停止
-        audio_render_.reset();
+
+    if (clock_) {
+        clock_.reset();
     }
-    if (renderHost_) {
-        // GLRenderHost::release() 内部会负责释放 ANativeWindow
-        renderHost_->release();
-        renderHost_.reset();
+
+    if (audio_cb_state_) {
+        audio_cb_state_.reset();
     }
-    if (video_frame_queue_)
-        video_frame_queue_->shutdown();
-    video_frame_queue_.reset();
-    if (audio_frame_queue_)
-        audio_frame_queue_->shutdown();
-    audio_frame_queue_.reset();
+
+    LOGI("FSM: All resources have been cleaned up.");
 }
+
 PlayerState NativePlayer::getState() const
 {
     if (impl_) {
@@ -551,21 +479,19 @@ PlayerState NativePlayer::getState() const
 
 double NativePlayer::getPosition() const
 {
-    if (impl_) {
-        // 直接返回主时钟的当前值
-        return impl_->master_clock_pts_.load();
+    if (impl_ && impl_->clock_) {
+        return impl_->clock_->get();
     }
     return 0.0;
 }
 void NativePlayer::Impl::run_sync_cycle()
 {
-    if (!video_frame_queue_ || video_frame_queue_->empty()) {
+    if (!pipeline_->video_frame_queue_ || pipeline_->video_frame_queue_->empty()) {
         // LOGD("SYNC: Video queue is empty, waiting for buffer.");
         return;
     }
 
-    // 查看视频队列的头部帧，但不弹出
-    std::optional<std::shared_ptr<VideoFrame>> video_frame_opt = video_frame_queue_->front();
+    std::optional<std::shared_ptr<VideoFrame>> video_frame_opt = pipeline_->video_frame_queue_->front();
     if (!video_frame_opt) {
         LOGW("SYNC: Queue not empty, but front() returned nullopt. Race condition?");
         return;
@@ -575,36 +501,95 @@ void NativePlayer::Impl::run_sync_cycle()
     if (!video_frame) {
         LOGE("SYNC: Popped a null video frame pointer!");
         std::shared_ptr<VideoFrame> dummy;
-        video_frame_queue_->try_pop(dummy);
+        pipeline_->video_frame_queue_->try_pop(dummy);
         return;
     }
 
-    double video_pts = video_frame->pts;
-    double master_clock = master_clock_pts_.load();
-    double diff = video_pts - master_clock;
+    auto decision = clock_->checkVideoFrame(video_frame->pts);
 
-    // 视频帧的显示时间还未到
-    if (diff > 0.01) {
-        LOGI("SYNC: Video is early. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f. Waiting...", video_pts, master_clock, diff);
+    switch (decision) {
+    case SyncClock::SyncDecision::Wait:
+    case SyncClock::SyncDecision::Drop:
         return;
+    case SyncClock::SyncDecision::Render:
+        break;
     }
 
-    // --- 决定处理这一帧了 ---
     std::shared_ptr<VideoFrame> frame_to_process;
-    if (!video_frame_queue_->try_pop(frame_to_process)) {
+    if (!pipeline_->video_frame_queue_->try_pop(frame_to_process)) {
         LOGW("SYNC: front() had a frame, but try_pop() failed. Race condition?");
         return;
     }
+    if (pipeline_->video_render_) {
+        pipeline_->video_render_->submitFrame(std::move(frame_to_process));
+    }
+}
 
-    // 视频太晚了 (例如超过100ms)，直接丢弃
-    if (diff < -0.1) {
-        LOGW("SYNC: Video is too late. Dropping frame. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f", video_pts, master_clock, diff);
-        return;
+int NativePlayer::Impl::audio_data_callback(AAudioStream* stream, void* userData, void* audioData, int32_t numFrames)
+{
+    auto* state = static_cast<AudioCallbackState*>(userData);
+    if (!state || !state->is_active.load()) {
+        // 填充静音，避免爆音
+        int32_t bytesNeeded = numFrames * AAudioStream_getChannelCount(stream) * sizeof(int16_t); // 假设是 PCM_I16
+        memset(audioData, 0, bytesNeeded);
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
     }
 
-    // 时间刚刚好或略晚，渲染它
-    LOGI("SYNC: Submitting frame to renderer. VideoPTS=%.3f, AudioClock=%.3f, Diff=%.3f", video_pts, master_clock, diff);
-    if (renderHost_) {
-        renderHost_->submitFrame(std::move(frame_to_process));
+    if (!state->audio_frame_queue || !state->clock) {
+        return AAUDIO_CALLBACK_RESULT_STOP;
     }
+
+    int32_t channelCount = AAudioStream_getChannelCount(stream);
+    int32_t format = AAudioStream_getFormat(stream);
+    int32_t bytesPerSample = (format == AAUDIO_FORMAT_PCM_I16) ? sizeof(int16_t) : sizeof(float);
+    int32_t bytesNeeded = numFrames * channelCount * bytesPerSample;
+    int32_t bytesCopied = 0;
+
+    if (state->is_logically_paused->load()) {
+        // 如果是暂停状态，填充静音，并且不从队列取数据，也不推进时钟
+        // soft pause
+        memset(audioData, 0, bytesNeeded);
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    }
+
+    while (bytesCopied < bytesNeeded) {
+        if (state->audio_buffer_ptr_ == nullptr || state->audio_buffer_size_ == 0) {
+
+            if (state->audio_frame_queue->try_pop(state->current_audio_frame_)) {
+                if (state->current_audio_frame_) {
+
+                    double frame_pts = state->current_audio_frame_->pts;
+                    LOGI("AUDIO_CB: Popped new audio frame with PTS = %.3f", frame_pts);
+
+                    if (frame_pts >= 0) {
+                        LOGI("AUDIO_CB: PTS is valid. Updating master clock from %.3f to %.3f", state->clock->get(), frame_pts);
+                        state->clock->update(frame_pts);
+                    } else {
+                        LOGW("AUDIO_CB: Popped frame has invalid PTS (%.3f). Clock not updated.", frame_pts);
+                    }
+                } else {
+                    LOGE("AUDIO_CB: try_pop succeeded but returned a null frame pointer!");
+                }
+
+                state->audio_buffer_ptr_ = state->current_audio_frame_->interleaved_pcm;
+                state->audio_buffer_size_ = state->current_audio_frame_->interleaved_size;
+
+            } else {
+                break;
+            }
+        }
+
+        int bytesToCopy = std::min(bytesNeeded - bytesCopied, state->audio_buffer_size_);
+        memcpy(static_cast<uint8_t*>(audioData) + bytesCopied, state->audio_buffer_ptr_, bytesToCopy);
+        bytesCopied += bytesToCopy;
+        state->audio_buffer_ptr_ += bytesToCopy;
+        state->audio_buffer_size_ -= bytesToCopy;
+    }
+
+    // 不够的话就填充静音
+    if (bytesCopied < bytesNeeded) {
+        memset(static_cast<uint8_t*>(audioData) + bytesCopied, 0, bytesNeeded - bytesCopied);
+    }
+
+    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }

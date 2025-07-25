@@ -14,6 +14,8 @@ public:
     ~GLRenderHost();
 
     bool init(ANativeWindow* window);
+    void start();
+
     void release();
     void pause();
     void resume();

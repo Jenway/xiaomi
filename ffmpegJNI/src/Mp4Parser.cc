@@ -210,10 +210,10 @@ private:
 
             // [日志] 确认数据包路由
             if (video_decoder_ && packet.streamIndex() == source->get_video_stream_index()) {
-                LOGD("Routing video packet (PTS: %lld) to video queue. Queue size: %zu", packet.get()->pts, video_packet_queue_->size());
+                LOGD("Routing video packet (PTS: %ld) to video queue. Queue size: %zu", packet.get()->pts, video_packet_queue_->size());
                 return video_packet_queue_->push(std::move(packet));
             } else if (audio_decoder_ && packet.streamIndex() == source->get_audio_stream_index()) {
-                LOGD("Routing audio packet (PTS: %lld) to audio queue. Queue size: %zu", packet.get()->pts, audio_packet_queue_->size());
+                LOGD("Routing audio packet (PTS: %ld) to audio queue. Queue size: %zu", packet.get()->pts, audio_packet_queue_->size());
                 return audio_packet_queue_->push(std::move(packet));
             }
 
@@ -270,25 +270,64 @@ private:
         set_state(PlayerState::Running);
     }
 
-    void handle_seek(double time_sec) const
+    void handle_seek(double time_sec)
     {
         LOGI("Handling SEEK to %.3f sec...", time_sec);
-        if (demuxer) {
-            demuxer->SeekTo(time_sec);
-        }
-        // 修改：清空所有队列和解码器
+
+        PlayerState previous_state = state_.load();
+        set_state(PlayerState::Seeking);
+
+        //  完全停止并销毁当前的解码器和队列。
+        // 这会同步地等待解码线程退出，从而避免任何 Use-After-Free。
+
+        LOGI("Seek: Stopping decoders...");
+        if (video_decoder_)
+            video_decoder_->Stop();
+        if (audio_decoder_)
+            audio_decoder_->Stop();
+
+        LOGI("Seek: Clearing packet queues...");
         if (video_packet_queue_)
             video_packet_queue_->clear();
         if (audio_packet_queue_)
             audio_packet_queue_->clear();
 
-        if (video_decoder_)
-            video_decoder_->flush();
+        if (demuxer) {
+            demuxer->SeekTo(time_sec);
+        }
 
-        if (audio_decoder_)
-            audio_decoder_->flush();
+        LOGI("Seek: Re-initializing decoders...");
+        try {
+            // --- 重新初始化视频解码器 ---
+            auto video_codec_context = std::make_shared<DecoderContext>(source->get_video_codecpar());
+            video_decoder_ = std::make_unique<Decoder>(video_codec_context, *video_packet_queue_);
+            auto on_video_frame_cb = [this](const AVFrame* frame) {
+                if (callbacks.on_video_frame_decoded) {
+                    callbacks.on_video_frame_decoded(convert_video_frame(source->get_video_stream(), frame));
+                }
+            };
+            video_decoder_->Start(on_video_frame_cb);
 
-        LOGI("Seek command processed.");
+            // --- 重新初始化音频解码器 ---
+            if (source->has_audio_stream()) {
+                auto audio_codec_context = std::make_shared<DecoderContext>(source->get_audio_codecpar());
+                audio_decoder_ = std::make_unique<Decoder>(audio_codec_context, *audio_packet_queue_);
+                auto on_audio_frame_cb = [this](const AVFrame* frame) {
+                    if (callbacks.on_audio_frame_decoded) {
+                        callbacks.on_audio_frame_decoded(convert_audio_frame(source->get_audio_stream(), frame));
+                    }
+                };
+                audio_decoder_->Start(on_audio_frame_cb);
+            }
+        } catch (const std::exception& e) {
+            report_error("Failed to re-initialize decoders after seek.");
+            handle_stop();
+            return;
+        }
+
+        // 恢复到 seek 之前的状态
+        LOGI("Seek command processed, resuming previous state.");
+        set_state(previous_state);
     }
 
     void cleanup_resources()

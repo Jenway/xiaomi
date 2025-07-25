@@ -18,6 +18,7 @@ enum class PlayerState : uint8_t {
     Running,
     Paused,
     Finished,
+    Seeking,
     Error,
 };
 

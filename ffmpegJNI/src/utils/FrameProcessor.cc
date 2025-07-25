@@ -65,12 +65,11 @@ std::shared_ptr<player_utils::VideoFrame> convert_video_frame(AVStream* stream, 
     return out;
 }
 
-// stream 参数是必需的，不能省略
 std::shared_ptr<AudioFrame> convert_audio_frame(AVStream* stream, const AVFrame* frame)
 {
     auto audio_frame = std::make_shared<AudioFrame>();
 
-    // --- [新增步骤 1] 计算并设置 PTS 和 Duration ---
+    // --- 计算并设置 PTS 和 Duration ---
 
     // 检查输入的 AVFrame 是否有有效的时间戳
     if (frame->pts != AV_NOPTS_VALUE) {
@@ -87,7 +86,7 @@ std::shared_ptr<AudioFrame> convert_audio_frame(AVStream* stream, const AVFrame*
     // 根据采样数和采样率计算这一帧的播放时长（秒）
     audio_frame->duration = (double)frame->nb_samples / frame->sample_rate;
 
-    // --- 您的原始代码（音频重采样），这部分逻辑是正确的 ---
+    // --- 音频重采样 ---
 
     audio_frame->nb_samples = frame->nb_samples;
     audio_frame->sample_rate = frame->sample_rate;
@@ -139,7 +138,6 @@ std::shared_ptr<AudioFrame> convert_audio_frame(AVStream* stream, const AVFrame*
     audio_frame->interleaved_pcm = out_buf;
     audio_frame->interleaved_size = samples_converted * audio_frame->channels * sizeof(int16_t);
 
-    // 清理
     swr_free(&swr_ctx);
     av_channel_layout_uninit(&out_layout);
 

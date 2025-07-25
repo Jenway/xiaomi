@@ -31,7 +31,9 @@ add_subdirectory(ffmpegJNI)
 add_subdirectory(videoFrameRender)
 add_subdirectory(audioRender)
 
-add_library(ffmpeg-jw SHARED common/src/NativePlayer.cc)
+file(GLOB COMMON_SOURCES "common/src/*.cc")
+
+add_library(ffmpeg-jw SHARED ${COMMON_SOURCES})
 
 set_target_properties(ffmpeg-jw PROPERTIES
     OUTPUT_NAME "ffmpeg-jw"

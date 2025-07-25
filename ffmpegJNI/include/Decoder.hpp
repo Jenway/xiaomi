@@ -27,7 +27,7 @@ public:
     void run();
 
 private:
-    int receive_and_process_frames();
+    void receive_all_available_frames();
     void flush_eof();
 
     player_utils::SemQueue<ffmpeg_utils::Packet>& queue_;
@@ -35,6 +35,7 @@ private:
     AVFrame* decoded_frame_ = nullptr;
     FrameSink frame_sink_;
 
-    std::atomic<bool> stop_requested_ { false };
+    int64_t last_packet_pts_ = AV_NOPTS_VALUE;
+
     std::thread thread_;
 };

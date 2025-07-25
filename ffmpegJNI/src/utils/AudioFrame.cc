@@ -1,5 +1,3 @@
-#pragma once
-
 #include "AudioFrame.hpp"
 extern "C" {
 #include "libavutil/mem.h"

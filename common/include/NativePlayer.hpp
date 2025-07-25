@@ -20,6 +20,7 @@ public:
     double getDuration() const;
     player_utils::PlayerState getState() const;
     double getPosition() const;
+    void setSpeed(float speed);
 
     void setJniEnv(JavaVM* vm, jobject player_object);
     void setOnStateChangedCallback(std::function<void(player_utils::PlayerState)> cb);
