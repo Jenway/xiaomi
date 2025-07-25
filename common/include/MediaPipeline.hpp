@@ -19,7 +19,7 @@ public:
     void start();
     void stop();
     void pause(bool is_paused);
-    void seek(double position);
+    void seek(double position, std::shared_ptr<std::promise<void>> promise);
     void flush();
 
     [[nodiscard]] player_utils::AudioParams getAudioParams() const;

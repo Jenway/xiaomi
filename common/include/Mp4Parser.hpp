@@ -3,6 +3,7 @@
 #include "Entitys.hpp"
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <memory>
 #include <string>
 
@@ -43,7 +44,7 @@ public:
     void pause(); // 请求暂停（阻塞 decoder 线程）
     void resume(); // 恢复运行
     void stop(); // 停止线程，释放资源
-    void seek(double time_sec);
+    void seek(double time_sec, std::shared_ptr<std::promise<void>> promise);
 
     double get_duration();
     [[nodiscard]] player_utils::AudioParams getAudioParams() const;

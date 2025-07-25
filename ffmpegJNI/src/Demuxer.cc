@@ -130,78 +130,135 @@ double Demuxer::GetDuration() const
     return static_cast<double>(ctx->duration) / AV_TIME_BASE;
 }
 
+// void Demuxer::run()
+// {
+//     log_thread_entry();
+
+//     AVFormatContext* ctx = source_->get_format_context();
+//     if (!ctx) {
+//         std::cerr << "[Demuxer Thread] Error: AVFormatContext is null." << std::endl;
+//         return;
+//     }
+
+//     bool discarding_packets_after_seek = false;
+//     double current_seek_time = 0.0;
+//     int video_idx = source_->get_video_stream_index();
+
+//     while (!stop_requested_.load()) {
+//         {
+//             std::unique_lock<std::mutex> lock(mutex_);
+//             cv_.wait(lock, [this] {
+//                 return !pause_requested_.load() || stop_requested_.load() || seek_requested_.load();
+//             });
+//         }
+
+//         if (stop_requested_.load())
+//             break;
+
+//         if (seek_requested_.exchange(false)) {
+//             current_seek_time = seek_timestamp_sec_.load();
+//             int64_t seek_target = static_cast<int64_t>(current_seek_time * AV_TIME_BASE);
+
+//             std::cout << "[Demuxer Thread] Seeking to " << current_seek_time << "s" << '\n';
+//             int ret = av_seek_frame(ctx, -1, seek_target, AVSEEK_FLAG_BACKWARD);
+//             if (ret < 0) {
+//                 std::cerr << "[Demuxer Thread] Error seeking: " << ret << '\n';
+//             } else {
+//                 avformat_flush(ctx);
+//                 if (packet_sink_) {
+//                     Packet flush_packet = Packet::createFlushPacket();
+//                     packet_sink_(flush_packet);
+//                 }
+//                 discarding_packets_after_seek = true;
+//             }
+//             continue;
+//         }
+
+//         Packet packet;
+//         int ret = av_read_frame(ctx, packet.get());
+//         AVStream* stream = ctx->streams[packet.streamIndex()];
+//         AVRational tb = stream->time_base;
+//         LOGD("Sending packet with pts=%.3f", packet.get()->pts * av_q2d(tb));
+
+//         if (ret < 0) {
+//             // EOF or error: send EOF packet and exit
+//             if (packet_sink_) {
+//                 Packet eof = Packet::createEofPacket();
+//                 packet_sink_(eof);
+//             }
+//             break;
+//         }
+
+//         if (discarding_packets_after_seek) {
+//             if (video_idx >= 0 && packet.streamIndex() == video_idx) {
+//                 AVRational tb = ctx->streams[video_idx]->time_base;
+//                 double pts_sec = packet.get()->pts * av_q2d(tb);
+//                 if (pts_sec < current_seek_time) {
+//                     continue; // still before seek target
+//                 }
+//                 // reached target, stop discarding
+//                 discarding_packets_after_seek = false;
+//             } else if (video_idx >= 0) {
+//                 continue; // drop non-video until first video at/after target
+//             }
+//         }
+
+//         if (packet_sink_) {
+//             if (!packet_sink_(packet)) {
+//                 stop_requested_.store(true);
+//             }
+//         }
+//     }
+//     log_thread_exit();
+// }
+
+// 在 Demuxer.cpp 中
 void Demuxer::run()
 {
     log_thread_entry();
-
     AVFormatContext* ctx = source_->get_format_context();
     if (!ctx) {
-        std::cerr << "[Demuxer Thread] Error: AVFormatContext is null." << std::endl;
+        LOGE("[Demuxer Thread] Error: AVFormatContext is null.");
         return;
     }
 
-    bool discarding_packets_after_seek = false;
-    double current_seek_time = 0.0;
-    int video_idx = source_->get_video_stream_index();
-
     while (!stop_requested_.load()) {
+        // 1. 将暂停检查放在循环的开头
         {
             std::unique_lock<std::mutex> lock(mutex_);
+            // 如果被要求暂停，就一直等待，直到被唤醒并且 pause_requested_ 变为 false
             cv_.wait(lock, [this] {
-                return !pause_requested_.load() || stop_requested_.load() || seek_requested_.load();
+                return !pause_requested_.load() || stop_requested_.load();
             });
         }
 
-        if (stop_requested_.load())
+        // 2. 检查是否在等待期间被要求停止
+        if (stop_requested_.load()) {
             break;
-
-        if (seek_requested_.exchange(false)) {
-            current_seek_time = seek_timestamp_sec_.load();
-            int64_t seek_target = static_cast<int64_t>(current_seek_time * AV_TIME_BASE);
-
-            std::cout << "[Demuxer Thread] Seeking to " << current_seek_time << "s" << '\n';
-            int ret = av_seek_frame(ctx, -1, seek_target, AVSEEK_FLAG_BACKWARD);
-            if (ret < 0) {
-                std::cerr << "[Demuxer Thread] Error seeking: " << ret << '\n';
-            } else {
-                avformat_flush(ctx);
-                if (packet_sink_) {
-                    Packet flush_packet = Packet::createFlushPacket();
-                    packet_sink_(flush_packet);
-                }
-                discarding_packets_after_seek = true;
-            }
-            continue;
         }
 
+        // 3. 读取数据包
         Packet packet;
         int ret = av_read_frame(ctx, packet.get());
+
         if (ret < 0) {
-            // EOF or error: send EOF packet and exit
+            LOGI("Demuxer: End of file or error reached.");
             if (packet_sink_) {
-                Packet eof = Packet::createEofPacket();
-                packet_sink_(eof);
+                // 发送一个空的 packet 作为 EOF 信号
+                auto eofP = Packet::createEofPacket();
+                packet_sink_(eofP);
             }
             break;
         }
 
-        if (discarding_packets_after_seek) {
-            if (video_idx >= 0 && packet.streamIndex() == video_idx) {
-                AVRational tb = ctx->streams[video_idx]->time_base;
-                double pts_sec = packet.get()->pts * av_q2d(tb);
-                if (pts_sec < current_seek_time) {
-                    continue; // still before seek target
-                }
-                // reached target, stop discarding
-                discarding_packets_after_seek = false;
-            } else if (video_idx >= 0) {
-                continue; // drop non-video until first video at/after target
-            }
-        }
-
+        // 4. 推送数据包
         if (packet_sink_) {
+            // packet_sink_ 应该返回一个 bool 值，如果下游（队列）已关闭或无法接收，
+            // 它应该返回 false，我们就可以停止 demuxing。
+            // 你的 Decoder::run() 已经是这样做的，所以这里也需要
             if (!packet_sink_(packet)) {
-                stop_requested_.store(true);
+                LOGI("Demuxer: Packet sink returned false. Assuming shutdown and exiting.");
+                break; // 下游无法接收，停止工作
             }
         }
     }

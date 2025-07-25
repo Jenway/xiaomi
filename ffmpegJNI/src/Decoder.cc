@@ -118,22 +118,19 @@ void Decoder::receive_all_available_frames()
             break;
         }
 
-        if (frame_sink_) {
-            frame_sink_(decoded_frame_);
+        if (decoded_frame_->pts == AV_NOPTS_VALUE && last_packet_pts_ != AV_NOPTS_VALUE) {
+            LOGW("Frame has no PTS, using last packet PTS: %ld", last_packet_pts_);
+            decoded_frame_->pts = last_packet_pts_;
+            last_packet_pts_ = AV_NOPTS_VALUE;
         }
 
-        // 检查解码出的帧是否有有效的PTS。
-        // 如果没有，或者它的PTS看起来像一个“陈旧”的值（这很难判断，所以我们主要检查AV_NOPTS_VALUE），
-        // 我们就使用我们从上一个数据包中保存的PTS。
-        if (decoded_frame_->pts == AV_NOPTS_VALUE) {
-            if (last_packet_pts_ != AV_NOPTS_VALUE) {
-                LOGD("Frame has no PTS, using last packet PTS: %ld", last_packet_pts_);
-                decoded_frame_->pts = last_packet_pts_;
-                // 一个 packet 的 PTS 只应该被用于它解码出的第一帧。
-                // 后续由该 packet 解码出的 B 帧等的 PTS 会由 FFmpeg 自动计算。
-                // 为了避免将一个 PTS 应用于多个帧，我们用完就重置它。
-                last_packet_pts_ = AV_NOPTS_VALUE;
-            }
+        LOGD("VideoDecoder output frame with pts: %.3f", decoded_frame_->pts * av_q2d(ctx_->get()->time_base));
+
+        if (frame_sink_) {
+            AVFrame* new_frame = av_frame_alloc();
+            av_frame_ref(new_frame, decoded_frame_);
+            frame_sink_(new_frame);
+            av_frame_free(&new_frame);
         }
 
         av_frame_unref(decoded_frame_);

@@ -7,6 +7,7 @@
 #include "Packet.hpp"
 #include "SemQueue.hpp"
 #include <android/log.h>
+#include <future>
 #include <memory>
 
 #define LOG_TAG "Mp4Parser"
@@ -26,6 +27,7 @@ enum class CommandType { START,
 struct Command {
     CommandType type;
     double time_sec = 0.0; // 仅用于 SEEK
+    std::shared_ptr<std::promise<void>> promise;
 };
 
 using ffmpeg_utils::Packet;
@@ -68,7 +70,7 @@ struct Mp4Parser::Impl {
         if (state_ != PlayerState::Stopped) {
             LOGI("Requesting STOP from destructor.");
             Command cmd { CommandType::STOP };
-            command_queue_->push(cmd);
+            command_queue_->push(std::move(cmd));
         }
         parser_loop_should_exit_ = true;
         LOGI("Shutting down command queue...");
@@ -84,7 +86,7 @@ struct Mp4Parser::Impl {
     {
         if (!parser_loop_should_exit_) {
             LOGD("Posting command: %d", static_cast<int>(cmd.type));
-            command_queue_->push(cmd);
+            command_queue_->push(std::move(cmd));
         } else {
             LOGW("Parser is shutting down. Ignoring command: %d", static_cast<int>(cmd.type));
         }
@@ -126,9 +128,13 @@ struct Mp4Parser::Impl {
                 break;
             case CommandType::SEEK:
                 if (state_ == PlayerState::Running || state_ == PlayerState::Paused) {
-                    handle_seek(cmd.time_sec);
-                } else
+                    handle_seek(cmd);
+                } else {
                     LOGW("Ignoring SEEK command, not in a seekable state.");
+                    if (cmd.promise) {
+                        cmd.promise->set_value();
+                    }
+                }
                 break;
             }
         }
@@ -202,17 +208,18 @@ private:
         }
 
         auto on_packet_cb = [this](Packet& packet) -> bool {
-            if (state_.load() != PlayerState::Running) {
-                // [日志] 如果不是Running状态，Demuxer应该停止
-                LOGD("Demuxer callback: state is not Running, requesting stop.");
-                return false;
-            }
+            // if (state_.load() != PlayerState::Running) {
+            //     // [日志] 如果不是Running状态，Demuxer应该停止
+            //     LOGD("Demuxer callback: state is not Running, requesting stop.");
+            //     return false;
+            // }
 
             // [日志] 确认数据包路由
             if (video_decoder_ && packet.streamIndex() == source->get_video_stream_index()) {
                 LOGD("Routing video packet (PTS: %ld) to video queue. Queue size: %zu", packet.get()->pts, video_packet_queue_->size());
                 return video_packet_queue_->push(std::move(packet));
-            } else if (audio_decoder_ && packet.streamIndex() == source->get_audio_stream_index()) {
+            }
+            if (audio_decoder_ && packet.streamIndex() == source->get_audio_stream_index()) {
                 LOGD("Routing audio packet (PTS: %ld) to audio queue. Queue size: %zu", packet.get()->pts, audio_packet_queue_->size());
                 return audio_packet_queue_->push(std::move(packet));
             }
@@ -270,30 +277,31 @@ private:
         set_state(PlayerState::Running);
     }
 
-    void handle_seek(double time_sec)
+    void handle_seek(Command& cmd)
     {
-        LOGI("Handling SEEK to %.3f sec...", time_sec);
+        LOGI("Handling SEEK to %.3f sec...", cmd.time_sec);
 
         PlayerState previous_state = state_.load();
         set_state(PlayerState::Seeking);
 
-        //  完全停止并销毁当前的解码器和队列。
-        // 这会同步地等待解码线程退出，从而避免任何 Use-After-Free。
+        LOGI("Seek: Pausing demuxer...");
+        demuxer->Pause();
 
-        LOGI("Seek: Stopping decoders...");
+        LOGI("Seek: Shutting down packet queues to unblock decoders...");
+        if (video_packet_queue_)
+            video_packet_queue_->shutdown();
+        if (audio_packet_queue_)
+            audio_packet_queue_->shutdown();
+
+        LOGI("Seek: Stopping (joining) decoders...");
         if (video_decoder_)
             video_decoder_->Stop();
         if (audio_decoder_)
             audio_decoder_->Stop();
 
-        LOGI("Seek: Clearing packet queues...");
-        if (video_packet_queue_)
-            video_packet_queue_->clear();
-        if (audio_packet_queue_)
-            audio_packet_queue_->clear();
-
+        LOGI("Seek: Seeking demuxer to %.3f...", cmd.time_sec);
         if (demuxer) {
-            demuxer->SeekTo(time_sec);
+            demuxer->SeekTo(cmd.time_sec);
         }
 
         LOGI("Seek: Re-initializing decoders...");
@@ -321,13 +329,26 @@ private:
             }
         } catch (const std::exception& e) {
             report_error("Failed to re-initialize decoders after seek.");
+            if (cmd.promise)
+                cmd.promise->set_value();
+
             handle_stop();
             return;
+        }
+
+        if (previous_state == PlayerState::Running) {
+            LOGI("Seek: Resuming demuxer.");
+            demuxer->Resume();
         }
 
         // 恢复到 seek 之前的状态
         LOGI("Seek command processed, resuming previous state.");
         set_state(previous_state);
+
+        if (cmd.promise) {
+            LOGI("Fulfilling seek promise to unblock FSM thread.");
+            cmd.promise->set_value();
+        }
     }
 
     void cleanup_resources()
@@ -436,10 +457,13 @@ void Mp4Parser::stop()
         impl_->post_command({ CommandType::STOP });
 }
 
-void Mp4Parser::seek(double time_sec)
+void Mp4Parser::seek(double time_sec, std::shared_ptr<std::promise<void>> promise)
 {
-    if (impl_)
-        impl_->post_command({ CommandType::SEEK, time_sec });
+    if (impl_) {
+        impl_->post_command({ CommandType::SEEK, time_sec, promise });
+    } else {
+        promise->set_value();
+    }
 }
 
 double Mp4Parser::get_duration()

@@ -6,6 +6,7 @@
 #include "SemQueue.hpp"
 #include <android/log.h>
 #include <cmath>
+#include <memory>
 
 #define LOG_TAG "MediaPipeline"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -135,11 +136,14 @@ void MediaPipeline::pause(bool is_paused)
     // 在 Nativeplayer::impl 中 soft pause
 }
 
-void MediaPipeline::seek(double position)
+void MediaPipeline::seek(double position, std::shared_ptr<std::promise<void>> promise)
 {
     LOGI("MediaPipeline seeking to %.2f seconds.", position);
     if (parser_) {
-        parser_->seek(position);
+        // --- FIX: Pass the promise down to the parser ---
+        parser_->seek(position, std::move(promise));
+    } else {
+        promise->set_value(); // Fulfill if no parser exists
     }
 }
 void MediaPipeline::flush()

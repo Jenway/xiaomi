@@ -117,19 +117,27 @@ public:
     void clear()
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
-
         Container empty_queue;
         queue_.swap(empty_queue);
+    }
+    void reset()
+    {
+        clear();
 
-        size_t items_to_clear = queue_.size();
-        // 我们不能简单地将 filled_slots_ 置为 0，因为可能有线程正在 acquire 它。
-        // 正确的做法是：我们“消耗”了多少个 filled_slots，就要“返还”多少个 empty_slots。
-        for (size_t i = 0; i < items_to_clear; ++i) {
-            filled_slots_.try_acquire();
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            shutdown_ = false;
+        }
+
+        while (filled_slots_.try_acquire())
+            ; // 耗尽已填充信号
+        while (empty_slots_.try_acquire())
+            ; // 耗尽空槽位信号
+
+        for (size_t i = 0; i < max_size_; ++i) {
             empty_slots_.release();
         }
     }
-
     void shutdown()
     {
         {

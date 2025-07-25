@@ -21,4 +21,5 @@ public:
 
 private:
     std::atomic<double> master_clock_pts_ { 0.0 };
+    std::atomic<int> frame_counter_ { 0 };
 };

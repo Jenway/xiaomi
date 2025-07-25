@@ -32,7 +32,7 @@ std::shared_ptr<player_utils::VideoFrame> convert_video_frame(AVStream* stream, 
 
     if (frame->pts != AV_NOPTS_VALUE) {
         out->pts = static_cast<double>(frame->pts) * av_q2d(stream->time_base);
-        // LOGD("Converted video frame: %dx%d, PTS=%.3f", frame->width, frame->height, out->pts);
+        LOGD("Converted video frame: %dx%d, PTS=%.3f", frame->width, frame->height, out->pts);
     } else {
         out->pts = 0.0;
         LOGD("Converted video frame without PTS.");
