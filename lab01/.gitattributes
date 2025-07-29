@@ -1,0 +1,5 @@
+static/01.png filter=lfs diff=lfs merge=lfs -text
+static/02.png filter=lfs diff=lfs merge=lfs -text
+static/03.png filter=lfs diff=lfs merge=lfs -text
+static/04.png filter=lfs diff=lfs merge=lfs -text
+static/05.png filter=lfs diff=lfs merge=lfs -text
