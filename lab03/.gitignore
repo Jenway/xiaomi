@@ -1,0 +1,6 @@
+.cache
+.clangd
+obj
+example.txt
+obj
+build
