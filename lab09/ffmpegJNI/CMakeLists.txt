@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.14)
+project(AndroidFFmpegJNI)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+option(BUILD_ANDROID_LIB "Build Android JNI shared library" ON)
+
+add_subdirectory(src)
+
+if(NOT BUILD_ANDROID_LIB)
+    add_subdirectory(test)
+endif()
