@@ -1,0 +1,5 @@
+lab09/output.yuv filter=lfs diff=lfs merge=lfs -text
+lab11/part1/app/release/app-release.apk filter=lfs diff=lfs merge=lfs -text
+lab12/Day3.mkv filter=lfs diff=lfs merge=lfs -text
+lab12/androidplayer/app/src/main/jniLibs/x86_64 filter=lfs diff=lfs merge=lfs -text
+lab12/androidplayer/app/src/main/jniLibs/x86_64/libffmpeg-jw.so filter=lfs diff=lfs merge=lfs -text
