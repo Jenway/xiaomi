@@ -1,0 +1,30 @@
+CompileFlags:                     # Tweak the parse settings
+  Add: [-xc++, -Wall, -Wextra, -std=c++23]             # treat all files as C++, enable more warnings
+  # Remove: -W*                     # strip all other warning-related flags
+  # Compiler: clang++               # Change argv[0] of compile flags to `clang++`
+  CompilationDatabase: ./build    # Load compile commands from this directory
+Diagnostics:
+  ClangTidy:
+    Add: 
+      - modernize*
+      - performance*
+      - bugprone*
+      - cppcoreguidelines*
+      - google*
+      - readability*
+      - concurrency*
+      - security*
+      - portability*
+      - misc*
+    Remove:
+      - modernize-use-trailing-return-type
+      # - cppcoreguidelines-pro-type-vararg   # if using printf-like functions
+      # - cppcoreguidelines-owning-memory # 裸指针禁止
+      - cppcoreguidelines-pro-bounds-pointer-arithmetic # 禁止裸指针算术
+      - cppcoreguidelines-avoid-magic-numbers
+      # - readability-identifier-naming
+      - readability-identifier-length
+      - readability-magic-numbers
+  UnusedIncludes: Strict
+Hover:
+  ShowAKA: No
