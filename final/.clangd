@@ -1,0 +1,50 @@
+CompileFlags:
+  Add: [-std=c++17, -Wall, -Wextra, -Wpedantic]
+
+Diagnostics:
+  UnusedIncludes: Strict  # 或者 None，如果你不想管头文件使用情况
+  ClangTidy:
+    Add:
+      - modernize*
+      - performance*
+      - bugprone*
+      - cppcoreguidelines*
+      - google*
+      - readability*
+      - concurrency*
+      - security*
+      - portability*
+      - misc*
+    Remove:
+      - modernize-use-trailing-return-type
+      - cppcoreguidelines-pro-type-vararg   # if using printf-like functions
+      - cppcoreguidelines-owning-memory # 裸指针禁止
+      - cppcoreguidelines-pro-bounds-pointer-arithmetic # 禁止裸指针算术
+      - readability-magic-numbers
+      - readability-braces-around-statements
+      - cppcoreguidelines-macro-usage
+      - cppcoreguidelines-avoid-magic-numbers
+      - cppcoreguidelines-special-member-functions
+      - cppcoreguidelines-avoid-c-arrays
+      - cppcoreguidelines-pro-bounds-array-to-pointer-decay
+      # - readability-identifier-naming
+      - google-readability-braces-around-statements
+      - misc-use-anonymous-namespace
+      - misc-non-private-member-variables-in-classes
+      - readability-identifier-length
+    # Remove: [clang-analyzer-*]  # 可选，禁用静态分析器警告太多的话
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true
+
+Completion:
+  AllScopes: true
+
+Index:
+  Background: Build
+
+
+# 你可以加入路径排除（适用于大型项目或三方库）
+# FileStatus: false  # 禁用 clangd 状态信息（防止弹出信息干扰）
