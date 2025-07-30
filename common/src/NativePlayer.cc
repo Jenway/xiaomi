@@ -601,8 +601,8 @@ void NativePlayer::Impl::run_sync_cycle()
     const std::shared_ptr<VideoFrame>& video_frame = *video_frame_opt;
     if (!video_frame) {
         LOGE("SYNC: Popped a null video frame pointer!");
-        std::shared_ptr<VideoFrame> dummy;
-        pipeline_->video_frame_queue_->try_pop(dummy);
+        // std::shared_ptr<VideoFrame> dummy;
+        // pipeline_->video_frame_queue_->try_pop(dummy);
         return;
     }
 

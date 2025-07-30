@@ -73,7 +73,7 @@ public class Player {
         if (stateInt >= 0 && stateInt < PlayerState.values().length) {
             return PlayerState.values()[stateInt];
         }
-        return PlayerState.None; // 默认或错误情况
+        return PlayerState.None;
     }
 
     public double getPosition() {

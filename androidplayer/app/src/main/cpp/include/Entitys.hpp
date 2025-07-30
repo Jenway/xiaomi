@@ -20,7 +20,7 @@ struct AudioParams {
     int32_t channel_count;
 };
 
-enum class PlayerState {
+enum class PlayerState : uint8_t {
     None,
     Playing,
     Paused,
